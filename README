@@ -1,0 +1,36 @@
+gtk3-nocsd is a small module used to disable the client side decoration of gtk+ 3.
+
+Introduction:
+Since gtk+ 3.10, its developers added a so-called header bar or custom title bar.
+With this and the client-side decoration, the original title bar and window border
+provided by the window manager are disabled by gtk+. This makes all gtk+ 3 programs
+look like align. Even worse, this may break some window manager or compositors.
+
+Unfortunately, the gtk+ developers decided to be against the 
+existing standards and provide "no option" to turn it off.
+
+Luckily, with gtk3-nocsd, we still have a way to (partially) turn it off.
+
+How to use:
+
+1. build the code with the script. (you need pkg-config and gtk+3-dev packages)
+> ./build.sh
+After this you'll have a "gtk3-nocsd.so" file.
+
+2. export some environment variables in your .profile or .bashrc.
+> export GTK_CSD=0
+> export LD_PRELOAD=<"full path" of your gtk3-nocsd.so file>
+
+3. Re-login to make the environment variables take effect.
+
+4. Hooray! GTK+ 3 client-side decoration is dead now.
+
+How it work:
+
+I use $LD_PRELOAD to override several gdk and glib/gobject APIs to
+intercept related calls gtk+ 3 uses to setup CSD.
+While gtk+ 3 is trying to initialize CSD, I let it think that there
+is no compositor available, so CSD fail to start.
+Actually, we never disable X compositing, so other parts are not affected.
+This hack to my knowledge is the most specific way to disable CSD
+without obvious side effects.
