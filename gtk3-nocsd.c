@@ -41,6 +41,14 @@ typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_prop
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
 volatile static int disable_composite = 0;
 
+static gboolean is_compatible_gtk_version() {
+    static gboolean checked = FALSE;
+    static gboolean compatible = FALSE;
+    if(G_UNLIKELY(!checked))
+        compatible = (gtk_check_version(3, 10, 0) == NULL);
+    return compatible;
+}
+
 static void set_has_custom_title(GtkWindow* window, gboolean set) {
     g_object_set_data(G_OBJECT(window), "custom_title", set ? GINT_TO_POINTER(1) : NULL);
 }
@@ -67,8 +75,10 @@ extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     if(!orig_func)
         orig_func = (gdk_screen_is_composited_t)dlsym(RTLD_NEXT, "gdk_screen_is_composited");
     // printf("gdk_screen_is_composited: %d\n", disable_composite);
-    if(disable_composite)
-        return FALSE;
+    if(is_compatible_gtk_version()) {
+        if(disable_composite)
+            return FALSE;
+    }
     // g_assert(disable_composite);
     return orig_func(screen);
 }
@@ -77,13 +87,15 @@ extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decor
     static gdk_window_set_decorations_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gdk_window_set_decorations_t)dlsym(RTLD_NEXT, "gdk_window_set_decorations");
-    if(decorations == GDK_DECOR_BORDER) {
-        GtkWidget* widget = NULL;
-        gdk_window_get_user_data(window, (void**)&widget);
-        if(widget && GTK_IS_WINDOW(widget)) { // if this GdkWindow is associated with a GtkWindow
-            // if this window has custom title (not using CSD), turn on all decorations
-            if(has_custom_title(GTK_WINDOW(widget)))
-                decorations = GDK_DECOR_ALL;
+    if(is_compatible_gtk_version()) {
+        if(decorations == GDK_DECOR_BORDER) {
+            GtkWidget* widget = NULL;
+            gdk_window_get_user_data(window, (void**)&widget);
+            if(widget && GTK_IS_WINDOW(widget)) { // if this GdkWindow is associated with a GtkWindow
+                // if this window has custom title (not using CSD), turn on all decorations
+                if(has_custom_title(GTK_WINDOW(widget)))
+                    decorations = GDK_DECOR_ALL;
+            }
         }
     }
     orig_func(window, decorations);
@@ -136,6 +148,7 @@ static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
     }
 }
 
+#if 0
 extern GType g_type_register_static (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags) {
     static g_type_register_static_t orig_func = NULL;
     if(!orig_func)
@@ -154,6 +167,7 @@ extern GType g_type_register_static (GType parent_type, const gchar *type_name, 
     }
     return orig_func(parent_type, type_name, info, flags);
 }
+#endif
 
 GType g_type_register_static_simple (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags) {
     GType type;
@@ -166,9 +180,11 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             orig_gtk_window_class_init = class_init;
-            class_init = (GClassInitFunc)fake_gtk_window_class_init;
-            gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
-            return gtk_window_type;
+            if(is_compatible_gtk_version()) {
+                class_init = (GClassInitFunc)fake_gtk_window_class_init;
+                gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+                return gtk_window_type;
+            }
         }
     }
 
@@ -176,9 +192,11 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkDialog") == 0)) {
             // override GtkDialogClass
             orig_gtk_dialog_class_init = class_init;
-            class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
-            gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
-            return gtk_dialog_type;
+            if(is_compatible_gtk_version()) {
+                class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
+                gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+                return gtk_dialog_type;
+            }
         }
     }
     type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
