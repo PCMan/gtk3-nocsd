@@ -35,10 +35,11 @@ typedef GType (*g_type_register_static_t) (GType parent_type, const gchar *type_
 typedef GType (*g_type_register_static_simple_t) (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags);
 typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interface_type, const GInterfaceInfo *info);
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
+typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
-static gboolean disable_composite = FALSE;
+volatile static int disable_composite = 0;
 
 static void set_has_custom_title(GtkWindow* window, gboolean set) {
     g_object_set_data(G_OBJECT(window), "custom_title", set ? GINT_TO_POINTER(1) : NULL);
@@ -53,21 +54,22 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     static gtk_window_set_titlebar_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_window_set_titlebar_t)dlsym(RTLD_NEXT, "gtk_window_set_titlebar");
-    // printf("gtk_window_set_titlebar\n");
-    disable_composite = TRUE;
+    printf("gtk_window_set_titlebar\n");
+    ++disable_composite;
     orig_func(window, titlebar);
     if(window && titlebar)
         set_has_custom_title(window, TRUE);
-    disable_composite = FALSE;
+    --disable_composite;
 }
 
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     static gdk_screen_is_composited_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gdk_screen_is_composited_t)dlsym(RTLD_NEXT, "gdk_screen_is_composited");
-    // printf("gdk_screen_is_composited\n");
+    printf("gdk_screen_is_composited: %d\n", disable_composite);
     if(disable_composite)
         return FALSE;
+    g_assert(disable_composite);
     return orig_func(screen);
 }
 
@@ -91,11 +93,36 @@ typedef void (*gtk_window_realize_t)(GtkWidget* widget);
 static gtk_window_realize_t orig_gtk_window_realize = NULL;
 
 static void fake_gtk_window_realize(GtkWidget* widget) {
-    // printf("intercept gtk_window_realize()!!! %p, %s\n", widget, G_OBJECT_TYPE_NAME(widget));
-    disable_composite = TRUE;
+    printf("intercept gtk_window_realize()!!! %p, %s %d\n", widget, G_OBJECT_TYPE_NAME(widget), has_custom_title(widget));
+    ++disable_composite;
     orig_gtk_window_realize(widget);
-    disable_composite = FALSE;
+    --disable_composite;
+    printf("end gtk_window_realize()\n");
 }
+
+static gtk_dialog_constructor_t orig_gtk_dialog_constructor = NULL;
+static GClassInitFunc orig_gtk_dialog_class_init = NULL;
+static GType gtk_dialog_type = 0;
+
+static GObject *fake_gtk_dialog_constructor (GType type, guint n_construct_properties, GObjectConstructParam *construct_params) {
+    printf("fake_gtk_dialog_constructor!! %d\n", disable_composite);
+    ++disable_composite;
+    GObject* obj = orig_gtk_dialog_constructor(type, n_construct_properties, construct_params);
+    --disable_composite;
+    printf("end fake_gtk_dialog_constructor\n");
+    return obj;
+}
+
+static void fake_gtk_dialog_class_init (GtkDialogClass *klass, gpointer data) {
+    orig_gtk_dialog_class_init(klass, data);
+    // GDialogClass* dialog_class = GTK_DIALOG_CLASS(klass);
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    if(object_class) {
+        orig_gtk_dialog_constructor = object_class->constructor;
+        object_class->constructor = fake_gtk_dialog_constructor;
+    }
+}
+
 
 static GClassInitFunc orig_gtk_window_class_init = NULL;
 static GType gtk_window_type = 0;
@@ -114,7 +141,7 @@ extern GType g_type_register_static (GType parent_type, const gchar *type_name, 
     if(!orig_func)
         orig_func = (g_type_register_static_t)dlsym(RTLD_NEXT, "g_type_register_static");
 
-    // printf("register %s\n", type_name);
+    printf("register %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
@@ -134,14 +161,24 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
     if(!orig_func)
         orig_func = (g_type_register_static_simple_t)dlsym(RTLD_NEXT, "g_type_register_static_simple");
 
-    // printf("register simple %s\n", type_name);
+    printf("register simple %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             orig_gtk_window_class_init = class_init;
             class_init = (GClassInitFunc)fake_gtk_window_class_init;
-            gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);;
+            gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
             return gtk_window_type;
+        }
+    }
+
+    if(!orig_gtk_dialog_class_init) { // GtkDialog::constructor is not overriden
+        if(type_name && G_UNLIKELY(strcmp(type_name, "GtkDialog") == 0)) {
+            // override GtkDialogClass
+            orig_gtk_dialog_class_init = class_init;
+            class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
+            gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+            return gtk_dialog_type;
         }
     }
     type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
@@ -152,13 +189,17 @@ static gtk_window_buildable_add_child_t orig_gtk_window_buildable_add_child = NU
 
 static void fake_gtk_window_buildable_add_child (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type) {
     // setting a titelbar via GtkBuilder => disable compositing temporarily
-    if(type && strcmp(type, "titlebar") == 0) {
-        disable_composite = TRUE;
+    gboolean is_titlebar = (type && strcmp(type, "titlebar") == 0);
+    if(is_titlebar) {
+        printf("gtk_window_buildable_add_child: %p, %s, %s, %s\n", buildable, G_OBJECT_TYPE_NAME(buildable), G_OBJECT_TYPE_NAME(child), type);
+        ++disable_composite;
         if(child)
             set_has_custom_title(GTK_WINDOW(buildable), TRUE);
     }
     orig_gtk_window_buildable_add_child(buildable, builder, child, type);
-    disable_composite = FALSE;
+    if(is_titlebar)
+        --disable_composite;
+    printf("add child end\n");
 }
 
 static GInterfaceInitFunc orig_gtk_window_buildable_interface_init = NULL;
@@ -168,7 +209,7 @@ static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, 
     orig_gtk_window_buildable_interface_init(iface, data);
     orig_gtk_window_buildable_add_child = iface->add_child;
     iface->add_child = fake_gtk_window_buildable_add_child;
-    // printf("intercept gtk_window_buildable_interface_init!!\n");
+    printf("intercept gtk_window_buildable_interface_init!!\n");
     // iface->set_buildable_property = gtk_window_buildable_set_buildable_property;
 }
 
