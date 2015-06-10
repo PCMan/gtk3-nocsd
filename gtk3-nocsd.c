@@ -25,6 +25,8 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <pthread.h>
+
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
@@ -36,6 +38,84 @@ typedef GType (*g_type_register_static_simple_t) (GType parent_type, const gchar
 typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interface_type, const GInterfaceInfo *info);
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
+
+enum {
+    GTK_LIBRARY,
+    GDK_LIBRARY,
+    GOBJECT_LIBRARY,
+    NUM_LIBRARIES
+};
+
+#ifndef GTK_LIBRARY_SONAME
+#define GTK_LIBRARY_SONAME "libgtk-3.so.0"
+#endif
+
+#ifndef GDK_LIBRARY_SONAME
+#define GDK_LIBRARY_SONAME "libgdk-3.so.0"
+#endif
+
+#ifndef GOBJECT_LIBRARY_SONAME
+#define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so"
+#endif
+
+static const char *library_sonames[NUM_LIBRARIES] = {
+    GTK_LIBRARY_SONAME,
+    GDK_LIBRARY_SONAME,
+    GOBJECT_LIBRARY_SONAME
+};
+
+static void * volatile library_handles[NUM_LIBRARIES] = {
+    NULL,
+    NULL,
+    NULL
+};
+
+__attribute__((destructor)) static void cleanup_library_handles(void) {
+    int i;
+
+    for (i = 0; i < NUM_LIBRARIES; i++) {
+        if (library_handles[i])
+            (void) dlclose(library_handles[i]);
+    }
+}
+
+static void *find_orig_function(int library_id, const char *symbol) {
+    void *handle;
+
+    /* This will work in most cases, and is completely thread-safe. */
+    handle = dlsym(RTLD_NEXT, symbol);
+    if (handle)
+        return handle;
+
+    /* dlsym(RTLD_NEXT, ...) will fail if the library using the symbol
+     * is dlopen()d itself (e.g. a python module or similar), so what
+     * we need to do is load the corresponding library ourselves and
+     * look for the symbol there. We keep a reference to that library
+     * so that we may close it again in a destructor function once we
+     * are unloaded. dlopen()/dlclose() are refcounted, so we need to
+     * use a mutex to protect dlopen(), otherwise we possibly could
+     * take out more than one reference on the library and the cleanup
+     * function wouldn't completely free it.
+     *
+     * Note that we use RTLD_NOLOAD, since we don't want to mask
+     * problems if plugins aren't properly linked against gtk itself. */
+    handle = library_handles[library_id];
+    if (!handle) {
+        static pthread_mutex_t handle_mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_lock(&handle_mutex);
+        /* we need to check again inside the mutex-protected block */
+        handle = library_handles[library_id];
+        if (!handle)
+            handle = dlopen(library_sonames[library_id], RTLD_LAZY | RTLD_NOLOAD);
+        if (handle)
+            library_handles[library_id] = handle;
+        pthread_mutex_unlock(&handle_mutex);
+        if (!handle)
+            return NULL;
+    }
+
+    return dlsym(handle, symbol);
+}
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
@@ -61,7 +141,7 @@ static gboolean has_custom_title(GtkWindow* window) {
 extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     static gtk_window_set_titlebar_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gtk_window_set_titlebar_t)dlsym(RTLD_NEXT, "gtk_window_set_titlebar");
+        orig_func = (gtk_window_set_titlebar_t)find_orig_function(GTK_LIBRARY, "gtk_window_set_titlebar");
     // printf("gtk_window_set_titlebar\n");
     ++disable_composite;
     orig_func(window, titlebar);
@@ -73,7 +153,7 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     static gdk_screen_is_composited_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gdk_screen_is_composited_t)dlsym(RTLD_NEXT, "gdk_screen_is_composited");
+        orig_func = (gdk_screen_is_composited_t)find_orig_function(GDK_LIBRARY, "gdk_screen_is_composited");
     // printf("gdk_screen_is_composited: %d\n", disable_composite);
     if(is_compatible_gtk_version()) {
         if(disable_composite)
@@ -86,7 +166,7 @@ extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
 extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decorations) {
     static gdk_window_set_decorations_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gdk_window_set_decorations_t)dlsym(RTLD_NEXT, "gdk_window_set_decorations");
+        orig_func = (gdk_window_set_decorations_t)find_orig_function(GDK_LIBRARY, "gdk_window_set_decorations");
     if(is_compatible_gtk_version()) {
         if(decorations == GDK_DECOR_BORDER) {
             GtkWidget* widget = NULL;
@@ -152,7 +232,7 @@ static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
 extern GType g_type_register_static (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags) {
     static g_type_register_static_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_register_static_t)dlsym(RTLD_NEXT, "g_type_register_static");
+        orig_func = (g_type_register_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static");
 
     // printf("register %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
@@ -173,7 +253,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
     GType type;
     static g_type_register_static_simple_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_register_static_simple_t)dlsym(RTLD_NEXT, "g_type_register_static_simple");
+        orig_func = (g_type_register_static_simple_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static_simple");
 
     // printf("register simple %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
@@ -234,7 +314,7 @@ static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, 
 void g_type_add_interface_static (GType instance_type, GType interface_type, const GInterfaceInfo *info) {
     static g_type_add_interface_static_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_add_interface_static_t)dlsym(RTLD_NEXT, "g_type_add_interface_static");
+        orig_func = (g_type_add_interface_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_add_interface_static");
     if(instance_type == gtk_window_type) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
             // register GtkBuildable interface for GtkWindow class
