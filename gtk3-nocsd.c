@@ -25,6 +25,8 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <pthread.h>
+
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
@@ -36,16 +38,115 @@ typedef GType (*g_type_register_static_simple_t) (GType parent_type, const gchar
 typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interface_type, const GInterfaceInfo *info);
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
+typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
+typedef void (*gtk_header_bar_set_show_close_button_t) (GtkHeaderBar *bar, gboolean setting);
+typedef void (*gtk_header_bar_set_property_t) (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec);
+
+enum {
+    GTK_LIBRARY,
+    GDK_LIBRARY,
+    GOBJECT_LIBRARY,
+    NUM_LIBRARIES
+};
+
+#ifndef GTK_LIBRARY_SONAME
+#define GTK_LIBRARY_SONAME "libgtk-3.so.0"
+#endif
+
+#ifndef GDK_LIBRARY_SONAME
+#define GDK_LIBRARY_SONAME "libgdk-3.so.0"
+#endif
+
+#ifndef GOBJECT_LIBRARY_SONAME
+#define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so"
+#endif
+
+static const char *library_sonames[NUM_LIBRARIES] = {
+    GTK_LIBRARY_SONAME,
+    GDK_LIBRARY_SONAME,
+    GOBJECT_LIBRARY_SONAME
+};
+
+static void * volatile library_handles[NUM_LIBRARIES] = {
+    NULL,
+    NULL,
+    NULL
+};
+
+__attribute__((destructor)) static void cleanup_library_handles(void) {
+    int i;
+
+    for (i = 0; i < NUM_LIBRARIES; i++) {
+        if (library_handles[i])
+            (void) dlclose(library_handles[i]);
+    }
+}
+
+static void *find_orig_function(int library_id, const char *symbol) {
+    void *handle;
+
+    /* This will work in most cases, and is completely thread-safe. */
+    handle = dlsym(RTLD_NEXT, symbol);
+    if (handle)
+        return handle;
+
+    /* dlsym(RTLD_NEXT, ...) will fail if the library using the symbol
+     * is dlopen()d itself (e.g. a python module or similar), so what
+     * we need to do is load the corresponding library ourselves and
+     * look for the symbol there. We keep a reference to that library
+     * so that we may close it again in a destructor function once we
+     * are unloaded. dlopen()/dlclose() are refcounted, so we need to
+     * use a mutex to protect dlopen(), otherwise we possibly could
+     * take out more than one reference on the library and the cleanup
+     * function wouldn't completely free it.
+     *
+     * Note that we use RTLD_NOLOAD, since we don't want to mask
+     * problems if plugins aren't properly linked against gtk itself. */
+    handle = library_handles[library_id];
+    if (!handle) {
+        static pthread_mutex_t handle_mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_lock(&handle_mutex);
+        /* we need to check again inside the mutex-protected block */
+        handle = library_handles[library_id];
+        if (!handle)
+            handle = dlopen(library_sonames[library_id], RTLD_LAZY | RTLD_NOLOAD);
+        if (handle)
+            library_handles[library_id] = handle;
+        pthread_mutex_unlock(&handle_mutex);
+        if (!handle)
+            return NULL;
+    }
+
+    return dlsym(handle, symbol);
+}
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
-volatile static int disable_composite = 0;
+volatile static __thread int disable_composite = 0;
 
 static gboolean is_compatible_gtk_version() {
-    static gboolean checked = FALSE;
-    static gboolean compatible = FALSE;
-    if(G_UNLIKELY(!checked))
-        compatible = (gtk_check_version(3, 10, 0) == NULL);
+    /* Marking both as volatile here saves the trouble of caring about
+     * memory barriers. */
+    static volatile gboolean checked = FALSE;
+    static volatile gboolean compatible = FALSE;
+    static gtk_check_version_t orig_func = NULL;
+    if(!orig_func)
+        orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
+
+    if(G_UNLIKELY(!checked)) {
+        /* We may have not been able to load the function IF a
+         * gtk2-using plugin was loaded into a non-gtk application. In
+         * that case, we don't want to do anything anyway, so just say
+         * we aren't compatible.
+         *
+         * Note that if the application itself is using gtk2, RTLD_NEXT
+         * will give us a reference to gtk_check_version. But since
+         * that symbol is compatible with gtk3, this doesn't hurt.
+         */
+        if (orig_func)
+            compatible = (orig_func(3, 10, 0) == NULL);
+        checked = TRUE;
+    }
     return compatible;
 }
 
@@ -61,7 +162,7 @@ static gboolean has_custom_title(GtkWindow* window) {
 extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     static gtk_window_set_titlebar_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gtk_window_set_titlebar_t)dlsym(RTLD_NEXT, "gtk_window_set_titlebar");
+        orig_func = (gtk_window_set_titlebar_t)find_orig_function(GTK_LIBRARY, "gtk_window_set_titlebar");
     // printf("gtk_window_set_titlebar\n");
     ++disable_composite;
     orig_func(window, titlebar);
@@ -70,10 +171,18 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     --disable_composite;
 }
 
+extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean setting)
+{
+    static gtk_header_bar_set_show_close_button_t orig_func = NULL;
+    if(!orig_func)
+        orig_func = (gtk_header_bar_set_show_close_button_t)find_orig_function(GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
+    orig_func (bar, FALSE);
+}
+
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     static gdk_screen_is_composited_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gdk_screen_is_composited_t)dlsym(RTLD_NEXT, "gdk_screen_is_composited");
+        orig_func = (gdk_screen_is_composited_t)find_orig_function(GDK_LIBRARY, "gdk_screen_is_composited");
     // printf("gdk_screen_is_composited: %d\n", disable_composite);
     if(is_compatible_gtk_version()) {
         if(disable_composite)
@@ -86,7 +195,7 @@ extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
 extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decorations) {
     static gdk_window_set_decorations_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gdk_window_set_decorations_t)dlsym(RTLD_NEXT, "gdk_window_set_decorations");
+        orig_func = (gdk_window_set_decorations_t)find_orig_function(GDK_LIBRARY, "gdk_window_set_decorations");
     if(is_compatible_gtk_version()) {
         if(decorations == GDK_DECOR_BORDER) {
             GtkWidget* widget = NULL;
@@ -148,11 +257,38 @@ static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
     }
 }
 
+static gtk_header_bar_set_property_t orig_gtk_header_bar_set_property = NULL;
+static const int PROP_SHOW_CLOSE_BUTTON = 6; /* FIXME: is this stable? */
+static void fake_gtk_header_bar_set_property (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
+{
+    /* In theory, we shouldn't need to override this, since
+     * set_property in the gtk3 source code just calls that function,
+     * but with active compiler optimization, an inline version of it
+     * may be copied into set_propery, so we also need to override
+     * this here. */
+    if(G_UNLIKELY(prop_id == PROP_SHOW_CLOSE_BUTTON))
+        gtk_header_bar_set_show_close_button (GTK_HEADER_BAR (object), FALSE);
+    else
+        orig_gtk_header_bar_set_property (object, prop_id, value, pspec);
+}
+
+static GClassInitFunc orig_gtk_header_bar_class_init = NULL;
+static GType gtk_header_bar_type = -1;
+
+static void fake_gtk_header_bar_class_init (GtkWindowClass *klass, gpointer data) {
+    orig_gtk_header_bar_class_init(klass, data);
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    if(object_class) {
+        orig_gtk_header_bar_set_property = object_class->set_property;
+        object_class->set_property = fake_gtk_header_bar_set_property;
+    }
+}
+
 #if 0
 extern GType g_type_register_static (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags) {
     static g_type_register_static_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_register_static_t)dlsym(RTLD_NEXT, "g_type_register_static");
+        orig_func = (g_type_register_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static");
 
     // printf("register %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
@@ -173,7 +309,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
     GType type;
     static g_type_register_static_simple_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_register_static_simple_t)dlsym(RTLD_NEXT, "g_type_register_static_simple");
+        orig_func = (g_type_register_static_simple_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static_simple");
 
     // printf("register simple %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
@@ -196,6 +332,18 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
                 class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
                 gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
                 return gtk_dialog_type;
+            }
+        }
+    }
+
+    if(!orig_gtk_header_bar_class_init) { // GtkHeaderBar::constructor is not overriden
+        if(type_name && G_UNLIKELY(strcmp(type_name, "GtkHeaderBar") == 0)) {
+            // override GtkHeaderBarClass
+            orig_gtk_header_bar_class_init = class_init;
+            if(is_compatible_gtk_version()) {
+                class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
+                gtk_header_bar_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+                return gtk_header_bar_type;
             }
         }
     }
@@ -234,7 +382,7 @@ static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, 
 void g_type_add_interface_static (GType instance_type, GType interface_type, const GInterfaceInfo *info) {
     static g_type_add_interface_static_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (g_type_add_interface_static_t)dlsym(RTLD_NEXT, "g_type_add_interface_static");
+        orig_func = (g_type_add_interface_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_add_interface_static");
     if(instance_type == gtk_window_type) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
             // register GtkBuildable interface for GtkWindow class
