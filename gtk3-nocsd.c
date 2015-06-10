@@ -120,6 +120,43 @@ static void *find_orig_function(int library_id, const char *symbol) {
     return dlsym(handle, symbol);
 }
 
+/* If a binary is compiled with ELF flag NOW (corresponding to RTLD_NOW),
+ * but is not linked against gtk, if we use symbols from gtk the binary
+ * they will fail to load. But we can't link this library against gtk3,
+ * because we don't want to pull that in to every program and that
+ * would also be incompatible with gtk2. */
+#define HIDDEN_NAME2(a,b)   a ## b
+#define NAME2(a,b)          HIDDEN_NAME2(a,b)
+#define RUNTIME_IMPORT_FUNCTION(library, function_name, return_type, arg_def_list, arg_use_list) \
+    static return_type NAME2(rtlookup_, function_name) arg_def_list { \
+        static return_type (*orig_func) arg_def_list = NULL;\
+        if (!orig_func) \
+            orig_func = find_orig_function(library, #function_name); \
+        return orig_func arg_use_list; \
+    }
+
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_get_data, gpointer, (GObject *object, const gchar *key), (object, key))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_set_data, void, (GObject *object, const gchar *key, gpointer data), (object, key, data))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
+
+#define gtk_window_get_type        rtlookup_gtk_window_get_type
+#define gtk_header_bar_get_type    rtlookup_gtk_header_bar_get_type
+#define gtk_widget_get_type        rtlookup_gtk_widget_get_type
+#define gtk_buildable_get_type     rtlookup_gtk_buildable_get_type
+#define gdk_window_get_user_data   rtlookup_gdk_window_get_user_data
+#define g_object_get_data          rtlookup_g_object_get_data
+#define g_object_set_data          rtlookup_g_object_set_data
+#define g_type_check_class_cast    rtlookup_g_type_check_class_cast
+#define g_type_check_instance_is_a rtlookup_g_type_check_instance_is_a
+#define g_type_check_instance_cast rtlookup_g_type_check_instance_cast
+
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
 volatile static __thread int disable_composite = 0;
