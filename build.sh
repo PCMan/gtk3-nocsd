@@ -6,4 +6,4 @@
 
 set -x
 
-${CC} `${PKG_CONFIG} --cflags gtk+-3.0` ${CPPFLAGS} ${CFLAGS} -Wall -fPIC -shared ${LDFLAGS} -ldl -o gtk3-nocsd.so gtk3-nocsd.c
+${CC} `${PKG_CONFIG} --cflags gtk+-3.0` ${CPPFLAGS} ${CFLAGS} -pthread -Wall -fPIC -shared ${LDFLAGS} -ldl -o gtk3-nocsd.so gtk3-nocsd.c
