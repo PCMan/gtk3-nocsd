@@ -39,7 +39,7 @@ typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_prop
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
-volatile static int disable_composite = 0;
+volatile static __thread int disable_composite = 0;
 
 static gboolean is_compatible_gtk_version() {
     static gboolean checked = FALSE;

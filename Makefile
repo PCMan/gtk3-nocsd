@@ -1,6 +1,6 @@
 PKG_CONFIG ?= pkg-config
 CFLAGS ?= -O2 -g
-CFLAGS += $(shell ${PKG_CONFIG} --cflags gtk+-3.0) -Wall -fPIC
+CFLAGS += $(shell ${PKG_CONFIG} --cflags gtk+-3.0) -pthread -Wall -fPIC
 LDLIBS = -ldl
 
 libdir ?= /usr/lib
