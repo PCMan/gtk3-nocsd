@@ -39,6 +39,8 @@ typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interf
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
 typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
+typedef void (*gtk_header_bar_set_show_close_button_t) (GtkHeaderBar *bar, gboolean setting);
+typedef void (*gtk_header_bar_set_property_t) (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec);
 
 enum {
     GTK_LIBRARY,
@@ -169,6 +171,14 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     --disable_composite;
 }
 
+extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean setting)
+{
+    static gtk_header_bar_set_show_close_button_t orig_func = NULL;
+    if(!orig_func)
+        orig_func = (gtk_header_bar_set_show_close_button_t)find_orig_function(GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
+    orig_func (bar, FALSE);
+}
+
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     static gdk_screen_is_composited_t orig_func = NULL;
     if(!orig_func)
@@ -247,6 +257,33 @@ static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
     }
 }
 
+static gtk_header_bar_set_property_t orig_gtk_header_bar_set_property = NULL;
+static const int PROP_SHOW_CLOSE_BUTTON = 6; /* FIXME: is this stable? */
+static void fake_gtk_header_bar_set_property (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
+{
+    /* In theory, we shouldn't need to override this, since
+     * set_property in the gtk3 source code just calls that function,
+     * but with active compiler optimization, an inline version of it
+     * may be copied into set_propery, so we also need to override
+     * this here. */
+    if(G_UNLIKELY(prop_id == PROP_SHOW_CLOSE_BUTTON))
+        gtk_header_bar_set_show_close_button (GTK_HEADER_BAR (object), FALSE);
+    else
+        orig_gtk_header_bar_set_property (object, prop_id, value, pspec);
+}
+
+static GClassInitFunc orig_gtk_header_bar_class_init = NULL;
+static GType gtk_header_bar_type = -1;
+
+static void fake_gtk_header_bar_class_init (GtkWindowClass *klass, gpointer data) {
+    orig_gtk_header_bar_class_init(klass, data);
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    if(object_class) {
+        orig_gtk_header_bar_set_property = object_class->set_property;
+        object_class->set_property = fake_gtk_header_bar_set_property;
+    }
+}
+
 #if 0
 extern GType g_type_register_static (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags) {
     static g_type_register_static_t orig_func = NULL;
@@ -295,6 +332,18 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
                 class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
                 gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
                 return gtk_dialog_type;
+            }
+        }
+    }
+
+    if(!orig_gtk_header_bar_class_init) { // GtkHeaderBar::constructor is not overriden
+        if(type_name && G_UNLIKELY(strcmp(type_name, "GtkHeaderBar") == 0)) {
+            // override GtkHeaderBarClass
+            orig_gtk_header_bar_class_init = class_init;
+            if(is_compatible_gtk_version()) {
+                class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
+                gtk_header_bar_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+                return gtk_header_bar_type;
             }
         }
     }
