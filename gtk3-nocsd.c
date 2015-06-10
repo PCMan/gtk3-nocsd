@@ -38,6 +38,7 @@ typedef GType (*g_type_register_static_simple_t) (GType parent_type, const gchar
 typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interface_type, const GInterfaceInfo *info);
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
+typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
 
 enum {
     GTK_LIBRARY,
@@ -122,10 +123,28 @@ static void *find_orig_function(int library_id, const char *symbol) {
 volatile static __thread int disable_composite = 0;
 
 static gboolean is_compatible_gtk_version() {
-    static gboolean checked = FALSE;
-    static gboolean compatible = FALSE;
-    if(G_UNLIKELY(!checked))
-        compatible = (gtk_check_version(3, 10, 0) == NULL);
+    /* Marking both as volatile here saves the trouble of caring about
+     * memory barriers. */
+    static volatile gboolean checked = FALSE;
+    static volatile gboolean compatible = FALSE;
+    static gtk_check_version_t orig_func = NULL;
+    if(!orig_func)
+        orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
+
+    if(G_UNLIKELY(!checked)) {
+        /* We may have not been able to load the function IF a
+         * gtk2-using plugin was loaded into a non-gtk application. In
+         * that case, we don't want to do anything anyway, so just say
+         * we aren't compatible.
+         *
+         * Note that if the application itself is using gtk2, RTLD_NEXT
+         * will give us a reference to gtk_check_version. But since
+         * that symbol is compatible with gtk3, this doesn't hurt.
+         */
+        if (orig_func)
+            compatible = (orig_func(3, 10, 0) == NULL);
+        checked = TRUE;
+    }
     return compatible;
 }
 
