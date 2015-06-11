@@ -145,6 +145,7 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_set_data, void, (GObject *obje
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
 
 #define gtk_window_get_type        rtlookup_gtk_window_get_type
 #define gtk_header_bar_get_type    rtlookup_gtk_header_bar_get_type
@@ -156,6 +157,7 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstan
 #define g_type_check_class_cast    rtlookup_g_type_check_class_cast
 #define g_type_check_instance_is_a rtlookup_g_type_check_instance_is_a
 #define g_type_check_instance_cast rtlookup_g_type_check_instance_cast
+#define g_object_class_find_property rtlookup_g_object_class_find_property
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
@@ -295,15 +297,29 @@ static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
 }
 
 static gtk_header_bar_set_property_t orig_gtk_header_bar_set_property = NULL;
-static const int PROP_SHOW_CLOSE_BUTTON = 6; /* FIXME: is this stable? */
+static volatile int PROP_SHOW_CLOSE_BUTTON = -1;
 static void fake_gtk_header_bar_set_property (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
+    /* We haven't determined the property yet... */
+    if (G_UNLIKELY(PROP_SHOW_CLOSE_BUTTON == -1)) {
+        GParamSpec *spec = g_object_class_find_property(G_OBJECT_GET_CLASS(object), "show-close-button");
+        if (spec)
+            /* Technically, this is marked as internal in GParamSpec,
+             * but it's the only way to access that trivially. It's
+             * been stable in gobject for over a decade now. */
+            PROP_SHOW_CLOSE_BUTTON = spec->param_id;
+        else
+            /* We couldn't find out, for some reason. The value -2
+             * will never match a valid property id, so should be safe. */
+            PROP_SHOW_CLOSE_BUTTON = -2;
+    }
+
     /* In theory, we shouldn't need to override this, since
      * set_property in the gtk3 source code just calls that function,
      * but with active compiler optimization, an inline version of it
      * may be copied into set_propery, so we also need to override
      * this here. */
-    if(G_UNLIKELY(prop_id == PROP_SHOW_CLOSE_BUTTON))
+    if(G_UNLIKELY((int)prop_id == PROP_SHOW_CLOSE_BUTTON))
         gtk_header_bar_set_show_close_button (GTK_HEADER_BAR (object), FALSE);
     else
         orig_gtk_header_bar_set_property (object, prop_id, value, pspec);
