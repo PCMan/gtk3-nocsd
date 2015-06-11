@@ -46,6 +46,7 @@ enum {
     GTK_LIBRARY,
     GDK_LIBRARY,
     GOBJECT_LIBRARY,
+    GLIB_LIBRARY,
     NUM_LIBRARIES
 };
 
@@ -61,13 +62,19 @@ enum {
 #define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so"
 #endif
 
+#ifndef GLIB_LIBRARY_SONAME
+#define GLIB_LIBRARY_SONAME "libglib-2.0.so"
+#endif
+
 static const char *library_sonames[NUM_LIBRARIES] = {
     GTK_LIBRARY_SONAME,
     GDK_LIBRARY_SONAME,
-    GOBJECT_LIBRARY_SONAME
+    GOBJECT_LIBRARY_SONAME,
+    GLIB_LIBRARY_SONAME
 };
 
 static void * volatile library_handles[NUM_LIBRARIES] = {
+    NULL,
     NULL,
     NULL,
     NULL
@@ -146,6 +153,7 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, 
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
+RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
 
 #define gtk_window_get_type        rtlookup_gtk_window_get_type
 #define gtk_header_bar_get_type    rtlookup_gtk_header_bar_get_type
@@ -158,34 +166,57 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpe
 #define g_type_check_instance_is_a rtlookup_g_type_check_instance_is_a
 #define g_type_check_instance_cast rtlookup_g_type_check_instance_cast
 #define g_object_class_find_property rtlookup_g_object_class_find_property
+#define g_getenv                    rtlookup_g_getenv
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
 volatile static __thread int disable_composite = 0;
+
+static gboolean is_gtk_version_larger_than(guint major, guint minor, guint micro) {
+    static gtk_check_version_t orig_func = NULL;
+    if(!orig_func)
+        orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
+
+    /* We may have not been able to load the function IF a
+     * gtk2-using plugin was loaded into a non-gtk application. In
+     * that case, we don't want to do anything anyway, so just say
+     * we aren't compatible.
+     *
+     * Note that if the application itself is using gtk2, RTLD_NEXT
+     * will give us a reference to gtk_check_version. But since
+     * that symbol is compatible with gtk3, this doesn't hurt.
+     */
+     if (orig_func)
+        return (orig_func(major, minor, micro) == NULL);
+    return FALSE;
+}
 
 static gboolean is_compatible_gtk_version() {
     /* Marking both as volatile here saves the trouble of caring about
      * memory barriers. */
     static volatile gboolean checked = FALSE;
     static volatile gboolean compatible = FALSE;
-    static gtk_check_version_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
 
     if(G_UNLIKELY(!checked)) {
-        /* We may have not been able to load the function IF a
-         * gtk2-using plugin was loaded into a non-gtk application. In
-         * that case, we don't want to do anything anyway, so just say
-         * we aren't compatible.
-         *
-         * Note that if the application itself is using gtk2, RTLD_NEXT
-         * will give us a reference to gtk_check_version. But since
-         * that symbol is compatible with gtk3, this doesn't hurt.
-         */
-        if (orig_func)
-            compatible = (orig_func(3, 10, 0) == NULL);
+        if (!is_gtk_version_larger_than(3, 10, 0)) {
+            /* CSD was introduced there */
+            compatible = FALSE;
+        } else if (!is_gtk_version_larger_than(3, 15, 0)) {
+            /* Up to 3.14.x this code worked. */
+            compatible = TRUE;
+        } else if (!is_gtk_version_larger_than(3, 17, 0)) {
+            /* 3.15/3.16 didn't anymore. */
+            compatible = FALSE;
+        } else {
+            /* 3.17 did again, but only if the correct
+             * environment variable is set. */
+            const gchar *csd_env;
+            csd_env = g_getenv ("GTK_CSD");
+            compatible = csd_env != NULL && strcmp (csd_env, "1") != 0;
+        }
         checked = TRUE;
     }
+
     return compatible;
 }
 
@@ -215,7 +246,9 @@ extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean se
     static gtk_header_bar_set_show_close_button_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_header_bar_set_show_close_button_t)find_orig_function(GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
-    orig_func (bar, FALSE);
+    if(is_compatible_gtk_version())
+        setting = FALSE;
+    orig_func (bar, setting);
 }
 
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
