@@ -208,8 +208,10 @@ static gboolean is_compatible_gtk_version() {
             /* 3.16.x up to 3.17.3 didn't anymore. */
             compatible = FALSE;
         } else {
-            /* 3.17.4 did again, but only if the correct
-             * environment variable is set. */
+            /* 3.17.4 did again. */
+            compatible = TRUE;
+        }
+        if (compatible) {
             const gchar *csd_env;
             csd_env = g_getenv ("GTK_CSD");
             compatible = csd_env != NULL && strcmp (csd_env, "1") != 0;
