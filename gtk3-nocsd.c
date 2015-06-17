@@ -201,14 +201,14 @@ static gboolean is_compatible_gtk_version() {
         if (!is_gtk_version_larger_than(3, 10, 0)) {
             /* CSD was introduced there */
             compatible = FALSE;
-        } else if (!is_gtk_version_larger_than(3, 15, 0)) {
-            /* Up to 3.14.x this code worked. */
+        } else if (!is_gtk_version_larger_than(3, 16, 1)) {
+            /* Up to 3.16.0 this code worked. */
             compatible = TRUE;
-        } else if (!is_gtk_version_larger_than(3, 17, 0)) {
-            /* 3.15/3.16 didn't anymore. */
+        } else if (!is_gtk_version_larger_than(3, 17, 4)) {
+            /* 3.16.x up to 3.17.3 didn't anymore. */
             compatible = FALSE;
         } else {
-            /* 3.17 did again, but only if the correct
+            /* 3.17.4 did again, but only if the correct
              * environment variable is set. */
             const gchar *csd_env;
             csd_env = g_getenv ("GTK_CSD");

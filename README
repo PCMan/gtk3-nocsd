@@ -13,6 +13,9 @@ Luckily, with gtk3-nocsd, we still have a way to (partially) turn it off.
 
 How to use:
 
+0. Make sure your gtk+ version is either older than 3.16.1 or newer than
+3.17.3.
+
 1. build the code. (you need pkg-config and gtk+3-dev packages)
 > make
 After this you'll have a "libgtk3-nocsd.so" file.
