@@ -172,7 +172,7 @@ RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (na
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
 volatile static __thread int disable_composite = 0;
 
-static gboolean is_gtk_version_larger_than(guint major, guint minor, guint micro) {
+static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint micro) {
     static gtk_check_version_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
@@ -191,6 +191,16 @@ static gboolean is_gtk_version_larger_than(guint major, guint minor, guint micro
     return FALSE;
 }
 
+static gboolean are_csd_disabled() {
+    static volatile int csd_disabled = -1;
+    if (csd_disabled == -1) {
+        const gchar *csd_env;
+        csd_env = g_getenv ("GTK_CSD");
+        csd_disabled = csd_env != NULL && strcmp (csd_env, "1") != 0;
+    }
+    return csd_disabled;
+}
+
 static gboolean is_compatible_gtk_version() {
     /* Marking both as volatile here saves the trouble of caring about
      * memory barriers. */
@@ -198,23 +208,19 @@ static gboolean is_compatible_gtk_version() {
     static volatile gboolean compatible = FALSE;
 
     if(G_UNLIKELY(!checked)) {
-        if (!is_gtk_version_larger_than(3, 10, 0)) {
+        if (!is_gtk_version_larger_or_equal(3, 10, 0)) {
             /* CSD was introduced there */
             compatible = FALSE;
-        } else if (!is_gtk_version_larger_than(3, 16, 1)) {
+        } else if (!is_gtk_version_larger_or_equal(3, 16, 1)) {
             /* Up to 3.16.0 this code worked. */
             compatible = TRUE;
-        } else if (!is_gtk_version_larger_than(3, 17, 4)) {
+        } else if (!is_gtk_version_larger_or_equal(3, 17, 4)) {
             /* 3.16.x up to 3.17.3 didn't anymore. */
             compatible = FALSE;
         } else {
-            /* 3.17.4 did again. */
-            compatible = TRUE;
-        }
-        if (compatible) {
-            const gchar *csd_env;
-            csd_env = g_getenv ("GTK_CSD");
-            compatible = csd_env != NULL && strcmp (csd_env, "1") != 0;
+            /* 3.17.4 did again, but only if CSDs are
+             * disabled via env variable. */
+            compatible = are_csd_disabled();
         }
         checked = TRUE;
     }
@@ -235,6 +241,10 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     static gtk_window_set_titlebar_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_window_set_titlebar_t)find_orig_function(GTK_LIBRARY, "gtk_window_set_titlebar");
+    if(!is_compatible_gtk_version() || !are_csd_disabled()) {
+        orig_func(window, titlebar);
+        return;
+    }
     // printf("gtk_window_set_titlebar\n");
     ++disable_composite;
     orig_func(window, titlebar);
@@ -248,7 +258,7 @@ extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean se
     static gtk_header_bar_set_show_close_button_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_header_bar_set_show_close_button_t)find_orig_function(GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
-    if(is_compatible_gtk_version())
+    if(is_compatible_gtk_version() && are_csd_disabled())
         setting = FALSE;
     orig_func (bar, setting);
 }
@@ -258,7 +268,7 @@ extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     if(!orig_func)
         orig_func = (gdk_screen_is_composited_t)find_orig_function(GDK_LIBRARY, "gdk_screen_is_composited");
     // printf("gdk_screen_is_composited: %d\n", disable_composite);
-    if(is_compatible_gtk_version()) {
+    if(is_compatible_gtk_version() && are_csd_disabled()) {
         if(disable_composite)
             return FALSE;
     }
@@ -270,7 +280,7 @@ extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decor
     static gdk_window_set_decorations_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gdk_window_set_decorations_t)find_orig_function(GDK_LIBRARY, "gdk_window_set_decorations");
-    if(is_compatible_gtk_version()) {
+    if(is_compatible_gtk_version() && are_csd_disabled()) {
         if(decorations == GDK_DECOR_BORDER) {
             GtkWidget* widget = NULL;
             gdk_window_get_user_data(window, (void**)&widget);
@@ -379,7 +389,7 @@ extern GType g_type_register_static (GType parent_type, const gchar *type_name, 
         orig_func = (g_type_register_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static");
 
     // printf("register %s\n", type_name);
-    if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
+    if(is_compatible_gtk_version() && are_csd_disabled() && !orig_gtk_window_class_init) { // GtkWindow is not overriden
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             GTypeInfo fake_info = *info;
@@ -404,7 +414,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             orig_gtk_window_class_init = class_init;
-            if(is_compatible_gtk_version()) {
+            if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_window_class_init;
                 gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
                 return gtk_window_type;
@@ -416,7 +426,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkDialog") == 0)) {
             // override GtkDialogClass
             orig_gtk_dialog_class_init = class_init;
-            if(is_compatible_gtk_version()) {
+            if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
                 gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
                 return gtk_dialog_type;
@@ -428,7 +438,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkHeaderBar") == 0)) {
             // override GtkHeaderBarClass
             orig_gtk_header_bar_class_init = class_init;
-            if(is_compatible_gtk_version()) {
+            if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
                 gtk_header_bar_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
                 return gtk_header_bar_type;
@@ -471,7 +481,7 @@ void g_type_add_interface_static (GType instance_type, GType interface_type, con
     static g_type_add_interface_static_t orig_func = NULL;
     if(!orig_func)
         orig_func = (g_type_add_interface_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_add_interface_static");
-    if(instance_type == gtk_window_type) {
+    if(is_compatible_gtk_version() && are_csd_disabled() && instance_type == gtk_window_type) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
             // register GtkBuildable interface for GtkWindow class
             GInterfaceInfo fake_info = *info;
