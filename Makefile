@@ -5,13 +5,13 @@ LDLIBS = -ldl
 
 libdir ?= /usr/lib
 
-all: libgtk3-nocsd.so
+all: libgtk3-nocsd.so.0
 
 clean:
-	rm -f libgtk3-nocsd.so *.o *~
+	rm -f libgtk3-nocsd.so.0 *.o *~
 
-libgtk3-nocsd.so: gtk3-nocsd.o
-	$(CC) -shared $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+libgtk3-nocsd.so.0: gtk3-nocsd.o
+	$(CC) -shared $(CFLAGS) $(LDFLAGS) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
 
 install:
-	install -D -m 0644 libgtk3-nocsd.so $(DESTDIR)$(libdir)/libgtk3-nocsd.so
+	install -D -m 0644 libgtk3-nocsd.so.0 $(DESTDIR)$(libdir)/libgtk3-nocsd.so.0
