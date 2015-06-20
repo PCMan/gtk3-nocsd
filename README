@@ -4,7 +4,7 @@ Introduction:
 Since gtk+ 3.10, its developers added a so-called header bar or custom title bar.
 With this and the client-side decoration, the original title bar and window border
 provided by the window manager are disabled by gtk+. This makes all gtk+ 3 programs
-look like align. Even worse, this may break some window manager or compositors.
+look alike. Even worse, this may break some window manager or compositors.
 
 Unfortunately, the gtk+ developers decided to be against the 
 existing standards and provide "no option" to turn it off.
@@ -28,7 +28,7 @@ After this you'll have a "libgtk3-nocsd.so.0" file.
 
 4. Hooray! GTK+ 3 client-side decoration is dead now.
 
-How it work:
+How it works:
 
 I use $LD_PRELOAD to override several gdk and glib/gobject APIs to
 intercept related calls gtk+ 3 uses to setup CSD.
