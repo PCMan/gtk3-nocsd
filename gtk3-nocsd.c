@@ -30,16 +30,9 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
-typedef void (*gtk_window_set_titlebar_t) (GtkWindow *window, GtkWidget *titlebar);
-typedef gboolean (*gdk_screen_is_composited_t) (GdkScreen *screen);
-typedef void (*gdk_window_set_decorations_t) (GdkWindow *window, GdkWMDecoration decorations);
-typedef GType (*g_type_register_static_t) (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags);
-typedef GType (*g_type_register_static_simple_t) (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags);
-typedef void (*g_type_add_interface_static_t) (GType instance_type, GType interface_type, const GInterfaceInfo *info);
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
 typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
-typedef void (*gtk_header_bar_set_show_close_button_t) (GtkHeaderBar *bar, gboolean setting);
 typedef void (*gtk_header_bar_set_property_t) (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec);
 
 enum {
@@ -131,7 +124,8 @@ static void *find_orig_function(int library_id, const char *symbol) {
  * but is not linked against gtk, if we use symbols from gtk the binary
  * they will fail to load. But we can't link this library against gtk3,
  * because we don't want to pull that in to every program and that
- * would also be incompatible with gtk2. */
+ * would also be incompatible with gtk2. Therefore, make sure we import
+ * every function, not just those that we override, at runtime. */
 #define HIDDEN_NAME2(a,b)   a ## b
 #define NAME2(a,b)          HIDDEN_NAME2(a,b)
 #define RUNTIME_IMPORT_FUNCTION(library, function_name, return_type, arg_def_list, arg_use_list) \
@@ -146,27 +140,42 @@ RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_set_titlebar, void, (GtkWindow *window, GtkWidget *titlebar), (window, titlebar))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_set_show_close_button, void, (GtkHeaderBar *bar, gboolean setting), (bar, setting))
 RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
+RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_screen_is_composited, gboolean, (GdkScreen *screen), (screen))
+RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_get_data, gpointer, (GObject *object, const gchar *key), (object, key))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_set_data, void, (GObject *object, const gchar *key, gpointer data), (object, key, data))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_register_static_simple, GType, (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags), (parent_type, type_name, class_size, class_init, instance_size, instance_init, flags))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_add_interface_static, void, (GType instance_type, GType interface_type, const GInterfaceInfo *info), (instance_type, interface_type, info))
 RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
 
-#define gtk_window_get_type        rtlookup_gtk_window_get_type
-#define gtk_header_bar_get_type    rtlookup_gtk_header_bar_get_type
-#define gtk_widget_get_type        rtlookup_gtk_widget_get_type
-#define gtk_buildable_get_type     rtlookup_gtk_buildable_get_type
-#define gdk_window_get_user_data   rtlookup_gdk_window_get_user_data
-#define g_object_get_data          rtlookup_g_object_get_data
-#define g_object_set_data          rtlookup_g_object_set_data
-#define g_type_check_class_cast    rtlookup_g_type_check_class_cast
-#define g_type_check_instance_is_a rtlookup_g_type_check_instance_is_a
-#define g_type_check_instance_cast rtlookup_g_type_check_instance_cast
-#define g_object_class_find_property rtlookup_g_object_class_find_property
-#define g_getenv                    rtlookup_g_getenv
+/* All methods that we want to overwrite are named orig_, all methods
+ * that we just want to call (either directly or indirectrly)
+ */
+#define gtk_window_get_type                              rtlookup_gtk_window_get_type
+#define gtk_header_bar_get_type                          rtlookup_gtk_header_bar_get_type
+#define gtk_widget_get_type                              rtlookup_gtk_widget_get_type
+#define gtk_buildable_get_type                           rtlookup_gtk_buildable_get_type
+#define orig_gtk_window_set_titlebar                     rtlookup_gtk_window_set_titlebar
+#define orig_gtk_header_bar_set_show_close_button        rtlookup_gtk_header_bar_set_show_close_button
+#define gdk_window_get_user_data                         rtlookup_gdk_window_get_user_data
+#define orig_gdk_screen_is_composited                    rtlookup_gdk_screen_is_composited
+#define orig_gdk_window_set_decorations                  rtlookup_gdk_window_set_decorations
+#define g_object_get_data                                rtlookup_g_object_get_data
+#define g_object_set_data                                rtlookup_g_object_set_data
+#define g_type_check_class_cast                          rtlookup_g_type_check_class_cast
+#define g_type_check_instance_is_a                       rtlookup_g_type_check_instance_is_a
+#define g_type_check_instance_cast                       rtlookup_g_type_check_instance_cast
+#define g_object_class_find_property                     rtlookup_g_object_class_find_property
+#define orig_g_type_register_static_simple               rtlookup_g_type_register_static_simple
+#define orig_g_type_add_interface_static                 rtlookup_g_type_add_interface_static
+#define g_getenv                                         rtlookup_g_getenv
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
@@ -238,16 +247,12 @@ static gboolean has_custom_title(GtkWindow* window) {
 
 // This API exists since gtk+ 3.10
 extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
-    static gtk_window_set_titlebar_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (gtk_window_set_titlebar_t)find_orig_function(GTK_LIBRARY, "gtk_window_set_titlebar");
     if(!is_compatible_gtk_version() || !are_csd_disabled()) {
-        orig_func(window, titlebar);
+        orig_gtk_window_set_titlebar(window, titlebar);
         return;
     }
-    // printf("gtk_window_set_titlebar\n");
     ++disable_composite;
-    orig_func(window, titlebar);
+    orig_gtk_window_set_titlebar(window, titlebar);
     if(window && titlebar)
         set_has_custom_title(window, TRUE);
     --disable_composite;
@@ -255,31 +260,20 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
 
 extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean setting)
 {
-    static gtk_header_bar_set_show_close_button_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (gtk_header_bar_set_show_close_button_t)find_orig_function(GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
     if(is_compatible_gtk_version() && are_csd_disabled())
         setting = FALSE;
-    orig_func (bar, setting);
+    orig_gtk_header_bar_set_show_close_button (bar, setting);
 }
 
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
-    static gdk_screen_is_composited_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (gdk_screen_is_composited_t)find_orig_function(GDK_LIBRARY, "gdk_screen_is_composited");
-    // printf("gdk_screen_is_composited: %d\n", disable_composite);
     if(is_compatible_gtk_version() && are_csd_disabled()) {
         if(disable_composite)
             return FALSE;
     }
-    // g_assert(disable_composite);
-    return orig_func(screen);
+    return orig_gdk_screen_is_composited (screen);
 }
 
 extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decorations) {
-    static gdk_window_set_decorations_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (gdk_window_set_decorations_t)find_orig_function(GDK_LIBRARY, "gdk_window_set_decorations");
     if(is_compatible_gtk_version() && are_csd_disabled()) {
         if(decorations == GDK_DECOR_BORDER) {
             GtkWidget* widget = NULL;
@@ -291,18 +285,16 @@ extern void gdk_window_set_decorations (GdkWindow *window, GdkWMDecoration decor
             }
         }
     }
-    orig_func(window, decorations);
+    orig_gdk_window_set_decorations (window, decorations);
 }
 
 typedef void (*gtk_window_realize_t)(GtkWidget* widget);
 static gtk_window_realize_t orig_gtk_window_realize = NULL;
 
 static void fake_gtk_window_realize(GtkWidget* widget) {
-    // printf("intercept gtk_window_realize()!!! %p, %s %d\n", widget, G_OBJECT_TYPE_NAME(widget), has_custom_title(widget));
     ++disable_composite;
     orig_gtk_window_realize(widget);
     --disable_composite;
-    // printf("end gtk_window_realize()\n");
 }
 
 static gtk_dialog_constructor_t orig_gtk_dialog_constructor = NULL;
@@ -310,11 +302,9 @@ static GClassInitFunc orig_gtk_dialog_class_init = NULL;
 static GType gtk_dialog_type = 0;
 
 static GObject *fake_gtk_dialog_constructor (GType type, guint n_construct_properties, GObjectConstructParam *construct_params) {
-    // printf("fake_gtk_dialog_constructor!! %d\n", disable_composite);
     ++disable_composite;
     GObject* obj = orig_gtk_dialog_constructor(type, n_construct_properties, construct_params);
     --disable_composite;
-    // printf("end fake_gtk_dialog_constructor\n");
     return obj;
 }
 
@@ -382,42 +372,18 @@ static void fake_gtk_header_bar_class_init (GtkWindowClass *klass, gpointer data
     }
 }
 
-#if 0
-extern GType g_type_register_static (GType parent_type, const gchar *type_name, const GTypeInfo *info, GTypeFlags flags) {
-    static g_type_register_static_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (g_type_register_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static");
-
-    // printf("register %s\n", type_name);
-    if(is_compatible_gtk_version() && are_csd_disabled() && !orig_gtk_window_class_init) { // GtkWindow is not overriden
-        if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
-            // override GtkWindowClass
-            GTypeInfo fake_info = *info;
-            orig_gtk_window_class_init = info->class_init;
-            fake_info.class_init = (GClassInitFunc)fake_gtk_window_class_init;
-            gtk_window_type = orig_func(parent_type, type_name, &fake_info, flags);
-            return gtk_window_type;
-        }
-    }
-    return orig_func(parent_type, type_name, info, flags);
-}
-#endif
-
 GType g_type_register_static_simple (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags) {
     GType type;
-    static g_type_register_static_simple_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (g_type_register_static_simple_t)find_orig_function(GOBJECT_LIBRARY, "g_type_register_static_simple");
+    GType *save_type = NULL;
 
-    // printf("register simple %s\n", type_name);
     if(!orig_gtk_window_class_init) { // GtkWindow is not overriden
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             orig_gtk_window_class_init = class_init;
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_window_class_init;
-                gtk_window_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
-                return gtk_window_type;
+                save_type = &gtk_window_type;
+                goto out;
             }
         }
     }
@@ -428,8 +394,8 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
             orig_gtk_dialog_class_init = class_init;
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
-                gtk_dialog_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
-                return gtk_dialog_type;
+                save_type = &gtk_dialog_type;
+                goto out;
             }
         }
     }
@@ -440,12 +406,16 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
             orig_gtk_header_bar_class_init = class_init;
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
-                gtk_header_bar_type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
-                return gtk_header_bar_type;
+                save_type = &gtk_header_bar_type;
+                goto out;
             }
         }
     }
-    type = orig_func(parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+
+out:
+    type = orig_g_type_register_static_simple (parent_type, type_name, class_size, class_init, instance_size, instance_init, flags);
+    if (save_type)
+        *save_type = type;
     return type;
 }
 
@@ -478,18 +448,15 @@ static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, 
 }
 
 void g_type_add_interface_static (GType instance_type, GType interface_type, const GInterfaceInfo *info) {
-    static g_type_add_interface_static_t orig_func = NULL;
-    if(!orig_func)
-        orig_func = (g_type_add_interface_static_t)find_orig_function(GOBJECT_LIBRARY, "g_type_add_interface_static");
     if(is_compatible_gtk_version() && are_csd_disabled() && instance_type == gtk_window_type) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
             // register GtkBuildable interface for GtkWindow class
             GInterfaceInfo fake_info = *info;
             orig_gtk_window_buildable_interface_init = info->interface_init;
             fake_info.interface_init = (GInterfaceInitFunc)fake_gtk_window_buildable_interface_init;
-            orig_func(instance_type, interface_type, &fake_info);
+            orig_g_type_add_interface_static (instance_type, interface_type, &fake_info);
             return;
         }
     }
-    orig_func(instance_type, interface_type, info);
+    orig_g_type_add_interface_static (instance_type, interface_type, info);
 }
