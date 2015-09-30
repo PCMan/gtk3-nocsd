@@ -32,6 +32,8 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
+#include <girffi.h>
+
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
 typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
@@ -42,6 +44,7 @@ enum {
     GDK_LIBRARY,
     GOBJECT_LIBRARY,
     GLIB_LIBRARY,
+    GIREPOSITORY_LIBRARY,
     NUM_LIBRARIES
 };
 
@@ -61,14 +64,20 @@ enum {
 #define GLIB_LIBRARY_SONAME "libglib-2.0.so"
 #endif
 
+#ifndef GIREPOSITORY_LIBRARY_SONAME
+#define GIREPOSITORY_LIBRARY_SONAME "libgirepository-1.0.so.1"
+#endif
+
 static const char *library_sonames[NUM_LIBRARIES] = {
     GTK_LIBRARY_SONAME,
     GDK_LIBRARY_SONAME,
     GOBJECT_LIBRARY_SONAME,
-    GLIB_LIBRARY_SONAME
+    GLIB_LIBRARY_SONAME,
+    GIREPOSITORY_LIBRARY_SONAME
 };
 
 static void * volatile library_handles[NUM_LIBRARIES] = {
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -171,6 +180,7 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_instance_get_private, gpointer, 
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_signal_connect_data, gulong, (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags), (instance, detailed_signal, c_handler, data, destroy_data, connect_flags))
 RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
 RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_logv, void, (const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, va_list args), (log_domain, log_level, format, args))
+RUNTIME_IMPORT_FUNCTION(GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, gboolean, (GIFunctionInfo *info, GIFunctionInvoker *invoker, GError **error), (info, invoker, error))
 
 /* All methods that we want to overwrite are named orig_, all methods
  * that we just want to call (either directly or indirectrly)
@@ -209,6 +219,7 @@ RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_logv, void, (const gchar *log_domain, GL
 #define g_getenv                                         rtlookup_g_getenv
 #define g_logv                                           rtlookup_g_logv
 #define g_log                                            static_g_log
+#define orig_g_function_info_prep_invoker                rtlookup_g_function_info_prep_invoker
 
 /* Forwarding of varadic functions is tricky. */
 static void static_g_log(const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, ...)
@@ -678,4 +689,25 @@ out:
         }
     }
     return info;
+}
+
+gboolean g_function_info_prep_invoker (GIFunctionInfo *info, GIFunctionInvoker *invoker, GError **error)
+{
+    static gpointer orig_set_titlebar = NULL, orig_set_show_close_button = NULL;
+    gboolean result;
+
+    if (!orig_set_titlebar)
+        orig_set_titlebar = (gpointer) find_orig_function (GTK_LIBRARY, "gtk_window_set_titlebar");
+    if (!orig_set_show_close_button)
+        orig_set_show_close_button = (gpointer) find_orig_function (GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
+
+    result = orig_g_function_info_prep_invoker (info, invoker, error);
+    if (result) {
+        if (G_UNLIKELY (invoker->native_address == orig_set_titlebar))
+            invoker->native_address = gtk_window_set_titlebar;
+        if (G_UNLIKELY (invoker->native_address == orig_set_show_close_button))
+            invoker->native_address = gtk_header_bar_set_show_close_button;
+    }
+
+    return result;
 }
