@@ -27,6 +27,8 @@
 
 #include <pthread.h>
 
+#include <stdarg.h>
+
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
@@ -136,12 +138,23 @@ static void *find_orig_function(int library_id, const char *symbol) {
         return orig_func arg_use_list; \
     }
 
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_new, GtkWidget *, (GtkWindowType type), (type))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_new, GtkWidget *, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_set_titlebar, void, (GtkWindow *window, GtkWidget *titlebar), (window, titlebar))
 RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_set_show_close_button, void, (GtkHeaderBar *bar, gboolean setting), (bar, setting))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_style_context_add_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_style_context_remove_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_destroy, void, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_mapped, gboolean, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_realized, gboolean, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_style_context, GtkStyleContext *, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_map, void, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_set_parent, void, (GtkWidget *widget, GtkWidget *parent), (widget, parent))
+RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_unrealize, void, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
 RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_screen_is_composited, gboolean, (GdkScreen *screen), (screen))
 RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
@@ -153,17 +166,32 @@ RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstan
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_register_static_simple, GType, (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags), (parent_type, type_name, class_size, class_init, instance_size, instance_init, flags))
 RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_add_interface_static, void, (GType instance_type, GType interface_type, const GInterfaceInfo *info), (instance_type, interface_type, info))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_add_instance_private, gint, (GType class_type, gsize private_size), (class_type, private_size))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_instance_get_private, gpointer, (GTypeInstance *instance, GType private_type), (instance, private_type))
+RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_signal_connect_data, gulong, (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags), (instance, detailed_signal, c_handler, data, destroy_data, connect_flags))
 RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
+RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_logv, void, (const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, va_list args), (log_domain, log_level, format, args))
 
 /* All methods that we want to overwrite are named orig_, all methods
  * that we just want to call (either directly or indirectrly)
  */
+#define gtk_window_new                                   rtlookup_gtk_window_new
+#define gtk_header_bar_new                               rtlookup_gtk_header_bar_new
 #define gtk_window_get_type                              rtlookup_gtk_window_get_type
 #define gtk_header_bar_get_type                          rtlookup_gtk_header_bar_get_type
 #define gtk_widget_get_type                              rtlookup_gtk_widget_get_type
 #define gtk_buildable_get_type                           rtlookup_gtk_buildable_get_type
 #define orig_gtk_window_set_titlebar                     rtlookup_gtk_window_set_titlebar
 #define orig_gtk_header_bar_set_show_close_button        rtlookup_gtk_header_bar_set_show_close_button
+#define gtk_style_context_add_class                      rtlookup_gtk_style_context_add_class
+#define gtk_style_context_remove_class                   rtlookup_gtk_style_context_remove_class
+#define gtk_widget_destroy                               rtlookup_gtk_widget_destroy
+#define gtk_widget_get_mapped                            rtlookup_gtk_widget_get_mapped
+#define gtk_widget_get_realized                          rtlookup_gtk_widget_get_realized
+#define gtk_widget_get_style_context                     rtlookup_gtk_widget_get_style_context
+#define gtk_widget_map                                   rtlookup_gtk_widget_map
+#define gtk_widget_set_parent                            rtlookup_gtk_widget_set_parent
+#define gtk_widget_unrealize                             rtlookup_gtk_widget_unrealize
 #define gdk_window_get_user_data                         rtlookup_gdk_window_get_user_data
 #define orig_gdk_screen_is_composited                    rtlookup_gdk_screen_is_composited
 #define orig_gdk_window_set_decorations                  rtlookup_gdk_window_set_decorations
@@ -175,7 +203,21 @@ RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (na
 #define g_object_class_find_property                     rtlookup_g_object_class_find_property
 #define orig_g_type_register_static_simple               rtlookup_g_type_register_static_simple
 #define orig_g_type_add_interface_static                 rtlookup_g_type_add_interface_static
+#define orig_g_type_add_instance_private                 rtlookup_g_type_add_instance_private
+#define orig_g_signal_connect_data                       rtlookup_g_signal_connect_data
+#define g_type_instance_get_private                      rtlookup_g_type_instance_get_private
 #define g_getenv                                         rtlookup_g_getenv
+#define g_logv                                           rtlookup_g_logv
+#define g_log                                            static_g_log
+
+/* Forwarding of varadic functions is tricky. */
+static void static_g_log(const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    g_logv (log_domain, log_level, format, args);
+    va_end (args);
+}
 
 // When set to true, this override gdk_screen_is_composited() and let it
 // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
@@ -220,16 +262,8 @@ static gboolean is_compatible_gtk_version() {
         if (!is_gtk_version_larger_or_equal(3, 10, 0)) {
             /* CSD was introduced there */
             compatible = FALSE;
-        } else if (!is_gtk_version_larger_or_equal(3, 16, 1)) {
-            /* Up to 3.16.0 this code worked. */
-            compatible = TRUE;
-        } else if (!is_gtk_version_larger_or_equal(3, 17, 4)) {
-            /* 3.16.x up to 3.17.3 didn't anymore. */
-            compatible = FALSE;
         } else {
-            /* 3.17.4 did again, but only if CSDs are
-             * disabled via env variable. */
-            compatible = are_csd_disabled();
+            compatible = TRUE;
         }
         checked = TRUE;
     }
@@ -245,12 +279,87 @@ static gboolean has_custom_title(GtkWindow* window) {
     return (gboolean)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(window), "custom_title"));
 }
 
+typedef void (*on_titlebar_title_notify_t) (GtkHeaderBar *titlebar, GParamSpec *pspec, GtkWindow *self);
+
+typedef struct gtk_window_private_info_t {
+    gsize title_box_offset;
+    on_titlebar_title_notify_t on_titlebar_title_notify;
+} gtk_window_private_info_t;
+
+static GType gtk_window_type = 0;
+
+static gtk_window_private_info_t gtk_window_private_info ();
+
 // This API exists since gtk+ 3.10
 extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     if(!is_compatible_gtk_version() || !are_csd_disabled()) {
         orig_gtk_window_set_titlebar(window, titlebar);
         return;
     }
+    if (titlebar && is_gtk_version_larger_or_equal (3, 16, 1)) {
+        /* We have to reimplement gtk_window_set_titlebar ourselves, since
+         * those Gtk versions don't support turning CSD off anymore.
+         * This mainly does the same things as the original function
+         * (consisting of adding the title bar widget + connecting signals),
+         * but it will not enable CSD and not set the client_decorated flag
+         * in the window private space. (We wouldn't know which bit it is
+         * anyway.) */
+        gtk_window_private_info_t private_info = gtk_window_private_info ();
+        char *priv = G_TYPE_INSTANCE_GET_PRIVATE (window, gtk_window_type, char);
+        gboolean was_mapped = FALSE;
+        GtkWidget *widget = GTK_WIDGET (window);
+        GtkWidget **title_box_ptr = NULL;
+
+        /* Something went wrong, so just stick with the original
+         * implementation. */
+        if (private_info.title_box_offset < 0 || !priv)
+            goto orig_impl;
+
+        title_box_ptr = (GtkWidget **) &priv[private_info.title_box_offset];
+
+        if (!*title_box_ptr) {
+            was_mapped = gtk_widget_get_mapped (widget);
+            if (gtk_widget_get_realized (widget)) {
+                g_warning ("gtk_window_set_titlebar() called on a realized window");
+                gtk_widget_unrealize (widget);
+            }
+        }
+
+        /* Remove any potential old title bar. We can't call
+         * the static unset_titlebar() directly (not available),
+         * so we call the full function; that shouldn't have
+         * any side effects. */
+        orig_gtk_window_set_titlebar (window, NULL);
+
+        /* The solid-csd class is not removed when the titlebar
+         * is unset in Gtk (it's probably a bug), so unset it
+         * here explicitly, in case it's set. */
+        gtk_style_context_remove_class (gtk_widget_get_style_context (widget), "solid-csd");
+
+        /* We need to store the titlebar in priv->title_box,
+         * which is where title_box_ptr points to. Then we
+         * need to reparent the title bar and connect signals
+         * if it's a GtkHeaderBar. Apart from CSD enablement,
+         * this is what the original function boils down to.
+         */
+        *title_box_ptr = titlebar;
+        gtk_widget_set_parent (*title_box_ptr, widget);
+        if (GTK_IS_HEADER_BAR (titlebar)) {
+            g_signal_connect (titlebar, "notify::title",
+                        G_CALLBACK (private_info.on_titlebar_title_notify), window);
+            private_info.on_titlebar_title_notify (GTK_HEADER_BAR (titlebar), NULL, window);
+        }
+
+        gtk_style_context_add_class (gtk_widget_get_style_context (titlebar),
+                               GTK_STYLE_CLASS_TITLEBAR);
+
+        if (was_mapped)
+            gtk_widget_map (widget);
+
+        return;
+    }
+
+orig_impl:
     ++disable_composite;
     orig_gtk_window_set_titlebar(window, titlebar);
     if(window && titlebar)
@@ -320,7 +429,6 @@ static void fake_gtk_dialog_class_init (GtkDialogClass *klass, gpointer data) {
 
 
 static GClassInitFunc orig_gtk_window_class_init = NULL;
-static GType gtk_window_type = 0;
 
 static void fake_gtk_window_class_init (GtkWindowClass *klass, gpointer data) {
     orig_gtk_window_class_init(klass, data);
@@ -422,18 +530,11 @@ out:
 static gtk_window_buildable_add_child_t orig_gtk_window_buildable_add_child = NULL;
 
 static void fake_gtk_window_buildable_add_child (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type) {
-    // setting a titelbar via GtkBuilder => disable compositing temporarily
-    gboolean is_titlebar = (type && strcmp(type, "titlebar") == 0);
-    if(is_titlebar) {
-        // printf("gtk_window_buildable_add_child: %p, %s, %s, %s\n", buildable, G_OBJECT_TYPE_NAME(buildable), G_OBJECT_TYPE_NAME(child), type);
-        ++disable_composite;
-        if(child)
-            set_has_custom_title(GTK_WINDOW(buildable), TRUE);
+    if (type && strcmp (type, "titlebar") == 0) {
+        gtk_window_set_titlebar (GTK_WINDOW (buildable), GTK_WIDGET (child));
+        return;
     }
     orig_gtk_window_buildable_add_child(buildable, builder, child, type);
-    if(is_titlebar)
-        --disable_composite;
-    // printf("add child end\n");
 }
 
 static GInterfaceInitFunc orig_gtk_window_buildable_interface_init = NULL;
@@ -459,4 +560,122 @@ void g_type_add_interface_static (GType instance_type, GType interface_type, con
         }
     }
     orig_g_type_add_interface_static (instance_type, interface_type, info);
+}
+
+static gsize gtk_window_private_size = 0;
+static gint gtk_window_private_offset = 0;
+gint g_type_add_instance_private (GType class_type, gsize private_size)
+{
+    if (G_UNLIKELY (class_type == gtk_window_type && gtk_window_private_size == 0)) {
+        gtk_window_private_size = private_size;
+        gtk_window_private_offset = orig_g_type_add_instance_private (class_type, private_size);
+        return gtk_window_private_offset;
+    }
+    return orig_g_type_add_instance_private (class_type, private_size);
+}
+
+volatile static __thread int signal_capture_handler = 0;
+volatile static __thread gpointer signal_capture_instance = NULL;
+volatile static __thread GCallback signal_capture_callback = NULL;
+
+extern gulong g_signal_connect_data (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags)
+{
+    if (G_UNLIKELY (signal_capture_handler)) {
+        if (signal_capture_instance == instance && strcmp (detailed_signal, "notify::title") == 0)
+            signal_capture_callback = c_handler;
+    }
+    return orig_g_signal_connect_data (instance, detailed_signal, c_handler, data, destroy_data, connect_flags);
+}
+
+static int find_unique_pointer_in_region (const char *haystack, gsize haystack_size, void *needle)
+{
+    gsize i;
+    int offset = -1;
+    /* This is definitely not the most efficient algorithm, but
+     * since this is only called twice per program, we're not
+     * going to optimize it. */
+    for (i = 0; i <= haystack_size - sizeof (needle); i++) {
+        if (memcmp (&haystack[i], (void *) &needle, sizeof (needle)) == 0) {
+            /* The pointer should only occur once in this memory
+             * region - if not, then something's gone wrong. */
+            if (offset != -1)
+                return -2;
+            offset = (int) i;
+        }
+    }
+    return offset;
+}
+
+static gtk_window_private_info_t gtk_window_private_info ()
+{
+    static volatile gtk_window_private_info_t info = { (gsize) -1, NULL };
+    if (G_UNLIKELY (info.title_box_offset == (gsize) -1)) {
+        if (gtk_window_private_size != 0) {
+            /* We have to detect the offset of where the title_box pointer
+             * is stored in a GtkWindowPrivate object. This is required
+             * because we need to change the pointer inside
+             * GtkWindowPrivate causing any side effects (especially
+             * without enabling CSD) - and the set_titlebar function will
+             * enable CSD (in >= 3.16.1) if any non-NULL titlebar is set.
+             * Therefore, we need to find the pointer offset within the
+             * private data at runtime (it's not guaranteed to be stable
+             * ABI-wise, so we can't just hard-code things, that would
+             * lead to crashes). Furthermore, we need to know the address
+             * of the static callback function that's used to process the
+             * notify::title signal emitted by header bars.
+             *
+             * The basic algorithm is as follows: create a dummy GtkWindow,
+             * create a dummy GtkHeaderBar, call the original
+             * gtk_window_set_titlebar function and then look for the pointer
+             * in the private data region of the GtkWindow. The size of the
+             * region was recorded by us when the type was registered, so we
+             * will stay within the proper memory region.
+             */
+            GtkWindow *dummy_window = GTK_WINDOW (gtk_window_new (GTK_WINDOW_TOPLEVEL));
+            void *window_priv = NULL;
+            GtkHeaderBar *dummy_bar = GTK_HEADER_BAR (gtk_header_bar_new ());
+            int offset = -1;
+
+            if (!dummy_window || !dummy_bar) {
+                g_warning ("libgtk3-nocsd: couldn't create dummy objects (GtkWindow, GtkHeaderBar) to determine this Gtk's runtime data structure layout");
+                goto out;
+            }
+
+            /* First let's try to make sure the pointer is not present in
+             * the memory region. */
+            window_priv = G_TYPE_INSTANCE_GET_PRIVATE (dummy_window, gtk_window_type, void);
+            offset = find_unique_pointer_in_region (window_priv, gtk_window_private_size, dummy_bar);
+            /* Make sure the pointer isn't in there, else */
+            if (offset != -1) {
+                g_warning ("libgtk3-nocsd: error trying to determine this Gtk's runtime data structure layout: GtkWindow private structure already contained a pointer to GtkHeaderBar before setting title bar");
+                goto out;
+            }
+
+            /* Set the title bar via the original title bar function. */
+            signal_capture_callback = NULL;
+            signal_capture_handler = 1;
+            signal_capture_instance = dummy_bar;
+            orig_gtk_window_set_titlebar (dummy_window, GTK_WIDGET (dummy_bar));
+            signal_capture_handler = 0;
+            signal_capture_instance = NULL;
+
+            /* Now find the pointer in memory. */
+            offset = find_unique_pointer_in_region (window_priv, gtk_window_private_size, dummy_bar);
+            if (offset < 0) {
+                g_warning ("libgtk3-nocsd: error trying to determine this Gtk's runtime data structure layout: GtkWindow private structure doesn't contain a pointer to GtkHeaderBar after setting title bar (error type %d)", -offset);
+                goto out;
+            }
+
+            if (signal_capture_callback == NULL) {
+                g_warning ("libgtk3-nocsd: error trying to determine this Gtk's callback routine for GtkHeaderBar/GtkWindow interaction");
+                goto out;
+            }
+
+            info.on_titlebar_title_notify = (on_titlebar_title_notify_t) signal_capture_callback;
+            info.title_box_offset = offset;
+out:
+            if (dummy_window) gtk_widget_destroy (GTK_WIDGET (dummy_window));
+        }
+    }
+    return info;
 }
