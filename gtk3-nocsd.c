@@ -57,11 +57,11 @@ enum {
 #endif
 
 #ifndef GOBJECT_LIBRARY_SONAME
-#define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so"
+#define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so.0"
 #endif
 
 #ifndef GLIB_LIBRARY_SONAME
-#define GLIB_LIBRARY_SONAME "libglib-2.0.so"
+#define GLIB_LIBRARY_SONAME "libglib-2.0.so.0"
 #endif
 
 #ifndef GIREPOSITORY_LIBRARY_SONAME
