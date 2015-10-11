@@ -56,6 +56,10 @@ enum {
 #define GDK_LIBRARY_SONAME "libgdk-3.so.0"
 #endif
 
+#ifndef GDK_LIBRARY_SONAME_V2
+#define GDK_LIBRARY_SONAME_V2 "libgdk-x11-2.0.so.0"
+#endif
+
 #ifndef GOBJECT_LIBRARY_SONAME
 #define GOBJECT_LIBRARY_SONAME "libgobject-2.0.so.0"
 #endif
@@ -76,7 +80,20 @@ static const char *library_sonames[NUM_LIBRARIES] = {
     GIREPOSITORY_LIBRARY_SONAME
 };
 
-static void * volatile library_handles[NUM_LIBRARIES] = {
+static const char *library_sonames_v2[NUM_LIBRARIES] = {
+    NULL,
+    GDK_LIBRARY_SONAME_V2,
+    NULL,
+    NULL,
+    NULL
+};
+
+static void * volatile library_handles[NUM_LIBRARIES * 2] = {
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -87,14 +104,15 @@ static void * volatile library_handles[NUM_LIBRARIES] = {
 __attribute__((destructor)) static void cleanup_library_handles(void) {
     int i;
 
-    for (i = 0; i < NUM_LIBRARIES; i++) {
+    for (i = 0; i < NUM_LIBRARIES * 2; i++) {
         if (library_handles[i])
             (void) dlclose(library_handles[i]);
     }
 }
 
-static void *find_orig_function(int library_id, const char *symbol) {
+static void *find_orig_function(int try_gtk2, int library_id, const char *symbol) {
     void *handle;
+    void *symptr;
 
     /* This will work in most cases, and is completely thread-safe. */
     handle = dlsym(RTLD_NEXT, symbol);
@@ -114,6 +132,7 @@ static void *find_orig_function(int library_id, const char *symbol) {
      * Note that we use RTLD_NOLOAD, since we don't want to mask
      * problems if plugins aren't properly linked against gtk itself. */
     handle = library_handles[library_id];
+
     if (!handle) {
         static pthread_mutex_t handle_mutex = PTHREAD_MUTEX_INITIALIZER;
         pthread_mutex_lock(&handle_mutex);
@@ -124,6 +143,49 @@ static void *find_orig_function(int library_id, const char *symbol) {
         if (handle)
             library_handles[library_id] = handle;
         pthread_mutex_unlock(&handle_mutex);
+        if (!handle) {
+            if (try_gtk2)
+                goto try_gtk2_version;
+            return NULL;
+        }
+    }
+
+    symptr = dlsym(handle, symbol);
+    if (symptr || !try_gtk2)
+        return symptr;
+
+try_gtk2_version:
+    /* We overwrite some functions that are already available in GDK2.
+     * So just trying to dlopen() the GDK3 library will not work here,
+     * because GDK2 is going to be loaded instead. Therefore, retry
+     * with the GDK2 library - but only do so if the try_gtk2 flag is
+     * set, because we only want to do that for functions that were
+     * already available in Gtk/GDK2. Functions that were introduced
+     * in Gtk3 will not receive this treatment.
+     *
+     * We are very fortunate that the two relevant functions are
+     * binary compatible between GDK2 and GDK3.
+     */
+
+    /* try_gtk2 should not be set for functions were we don't have a
+     * Gtk2 variant of the library. So this should always hold.
+     * Nevertheless, be paranoid. */
+    if (!library_sonames_v2[library_id])
+        return NULL;
+
+    /* Same logic as above, but we use an offset in the library
+     * handles and use the v2 soname. */
+    handle = library_handles[NUM_LIBRARIES + library_id];
+    if (!handle) {
+        static pthread_mutex_t handle_v2_mutex = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_lock(&handle_v2_mutex);
+        /* we need to check again inside the mutex-protected block */
+        handle = library_handles[NUM_LIBRARIES + library_id];
+        if (!handle)
+            handle = dlopen(library_sonames_v2[library_id], RTLD_LAZY | RTLD_NOLOAD);
+        if (handle)
+            library_handles[NUM_LIBRARIES + library_id] = handle;
+        pthread_mutex_unlock(&handle_v2_mutex);
         if (!handle)
             return NULL;
     }
@@ -139,48 +201,48 @@ static void *find_orig_function(int library_id, const char *symbol) {
  * every function, not just those that we override, at runtime. */
 #define HIDDEN_NAME2(a,b)   a ## b
 #define NAME2(a,b)          HIDDEN_NAME2(a,b)
-#define RUNTIME_IMPORT_FUNCTION(library, function_name, return_type, arg_def_list, arg_use_list) \
+#define RUNTIME_IMPORT_FUNCTION(try_gtk2, library, function_name, return_type, arg_def_list, arg_use_list) \
     static return_type NAME2(rtlookup_, function_name) arg_def_list { \
         static return_type (*orig_func) arg_def_list = NULL;\
         if (!orig_func) \
-            orig_func = find_orig_function(library, #function_name); \
+            orig_func = find_orig_function(try_gtk2, library, #function_name); \
         return orig_func arg_use_list; \
     }
 
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_new, GtkWidget *, (GtkWindowType type), (type))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_new, GtkWidget *, (), ())
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_get_type, GType, (), ())
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_window_set_titlebar, void, (GtkWindow *window, GtkWidget *titlebar), (window, titlebar))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_header_bar_set_show_close_button, void, (GtkHeaderBar *bar, gboolean setting), (bar, setting))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_style_context_add_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_style_context_remove_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_destroy, void, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_mapped, gboolean, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_realized, gboolean, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_get_style_context, GtkStyleContext *, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_map, void, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_set_parent, void, (GtkWidget *widget, GtkWidget *parent), (widget, parent))
-RUNTIME_IMPORT_FUNCTION(GTK_LIBRARY, gtk_widget_unrealize, void, (GtkWidget *widget), (widget))
-RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
-RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_screen_is_composited, gboolean, (GdkScreen *screen), (screen))
-RUNTIME_IMPORT_FUNCTION(GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_get_data, gpointer, (GObject *object, const gchar *key), (object, key))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_set_data, void, (GObject *object, const gchar *key, gpointer data), (object, key, data))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_register_static_simple, GType, (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags), (parent_type, type_name, class_size, class_init, instance_size, instance_init, flags))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_add_interface_static, void, (GType instance_type, GType interface_type, const GInterfaceInfo *info), (instance_type, interface_type, info))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_add_instance_private, gint, (GType class_type, gsize private_size), (class_type, private_size))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_type_instance_get_private, gpointer, (GTypeInstance *instance, GType private_type), (instance, private_type))
-RUNTIME_IMPORT_FUNCTION(GOBJECT_LIBRARY, g_signal_connect_data, gulong, (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags), (instance, detailed_signal, c_handler, data, destroy_data, connect_flags))
-RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
-RUNTIME_IMPORT_FUNCTION(GLIB_LIBRARY, g_logv, void, (const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, va_list args), (log_domain, log_level, format, args))
-RUNTIME_IMPORT_FUNCTION(GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, gboolean, (GIFunctionInfo *info, GIFunctionInvoker *invoker, GError **error), (info, invoker, error))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_new, GtkWidget *, (GtkWindowType type), (type))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_new, GtkWidget *, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_set_titlebar, void, (GtkWindow *window, GtkWidget *titlebar), (window, titlebar))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_set_show_close_button, void, (GtkHeaderBar *bar, gboolean setting), (bar, setting))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_remove_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_destroy, void, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_mapped, gboolean, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_realized, gboolean, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_style_context, GtkStyleContext *, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_map, void, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_set_parent, void, (GtkWidget *widget, GtkWidget *parent), (widget, parent))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_unrealize, void, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
+RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_screen_is_composited, gboolean, (GdkScreen *screen), (screen))
+RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_get_data, gpointer, (GObject *object, const gchar *key), (object, key))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_set_data, void, (GObject *object, const gchar *key, gpointer data), (object, key, data))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_class_find_property, GParamSpec *, (GObjectClass *oclass, const gchar *property_name), (oclass, property_name))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_register_static_simple, GType, (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags), (parent_type, type_name, class_size, class_init, instance_size, instance_init, flags))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_add_interface_static, void, (GType instance_type, GType interface_type, const GInterfaceInfo *info), (instance_type, interface_type, info))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_add_instance_private, gint, (GType class_type, gsize private_size), (class_type, private_size))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_instance_get_private, gpointer, (GTypeInstance *instance, GType private_type), (instance, private_type))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_signal_connect_data, gulong, (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags), (instance, detailed_signal, c_handler, data, destroy_data, connect_flags))
+RUNTIME_IMPORT_FUNCTION(0, GLIB_LIBRARY, g_getenv, gchar *, (const char *name), (name))
+RUNTIME_IMPORT_FUNCTION(0, GLIB_LIBRARY, g_logv, void, (const gchar *log_domain, GLogLevelFlags log_level, const gchar *format, va_list args), (log_domain, log_level, format, args))
+RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, gboolean, (GIFunctionInfo *info, GIFunctionInvoker *invoker, GError **error), (info, invoker, error))
 
 /* All methods that we want to overwrite are named orig_, all methods
  * that we just want to call (either directly or indirectrly)
@@ -237,7 +299,7 @@ volatile static __thread int disable_composite = 0;
 static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint micro) {
     static gtk_check_version_t orig_func = NULL;
     if(!orig_func)
-        orig_func = (gtk_check_version_t)find_orig_function(GTK_LIBRARY, "gtk_check_version");
+        orig_func = (gtk_check_version_t)find_orig_function(0, GTK_LIBRARY, "gtk_check_version");
 
     /* We may have not been able to load the function IF a
      * gtk2-using plugin was loaded into a non-gtk application. In
@@ -697,9 +759,9 @@ gboolean g_function_info_prep_invoker (GIFunctionInfo *info, GIFunctionInvoker *
     gboolean result;
 
     if (!orig_set_titlebar)
-        orig_set_titlebar = (gpointer) find_orig_function (GTK_LIBRARY, "gtk_window_set_titlebar");
+        orig_set_titlebar = (gpointer) find_orig_function (0, GTK_LIBRARY, "gtk_window_set_titlebar");
     if (!orig_set_show_close_button)
-        orig_set_show_close_button = (gpointer) find_orig_function (GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
+        orig_set_show_close_button = (gpointer) find_orig_function (0, GTK_LIBRARY, "gtk_header_bar_set_show_close_button");
 
     result = orig_g_function_info_prep_invoker (info, invoker, error);
     if (result) {
