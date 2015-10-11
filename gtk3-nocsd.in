@@ -2,7 +2,8 @@
 #
 # gtk3-nocsd - Wrapper to apply gtk3-nocsd to application
 #
-# Usage: ln -s gtk3-nocsd ~/bin/evince
+# Usage: ln -s /path/to/gtk3-nocsd ~/bin/evince
+# Or:    gtk3-nocsd evince
 #
 # Create a symlink to this wrapper script with the name of the program
 # you want run without client-side decorations. This wrapper script
@@ -10,6 +11,9 @@
 # symlink to gtk3-nocsd. This wrapper script is useful if you don't
 # want to add gtk3-nocsd to your system-wide LD_PRELOAD or if you only
 # want it applied to certain applications.
+#
+# Alternative mode of operation: call this wrapper directly with the
+# program to call as its arguments.
 #
 
 GTK3_NOCSD_NAME=libgtk3-nocsd.so.0
@@ -54,8 +58,17 @@ if [ $IN_SYSTEM_PATH -eq 0 ] ; then
     fi
 fi
 
-export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
-export GTK_CSD=0
+# This program was called directly, instead of via a symlink.
+if [ x"$(basename "$0")"x = x"gtk3-nocsd"x ] ; then
+    if [ x"$1"x = x"-h"x ] || [ x"$1"x = x"--help"x ] ; then
+        echo "Usage: $0 program [args]"
+        exit 0
+    fi
+
+    export GTK_CSD=0
+    export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
+    exec "$@"
+fi
 
 # Find the real program (the first one that's not symlinked to get3-nocsd)
 APPNAME="$(basename "$0")"
@@ -65,4 +78,6 @@ for APPPATH in $(type -Pa "$APPNAME") /bin/false; do
 done
 
 # Run the program with CSD disabled
+export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
+export GTK_CSD=0
 exec "$APPPATH" "$@"
