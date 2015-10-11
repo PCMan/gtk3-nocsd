@@ -1,0 +1,12 @@
+gtk3-nocsd ChangeLog
+====================
+
+New in version 2
+----------------
+
+  * fix crash because the development SONAME for Glib/GObject was
+    referenced, instead of the SONAME of the package itself
+    (Thanks to Simon McVittie)
+  * fix crash with some GDK2 applications
+  * add wrapper script for starting applications without CSDs
+    (Thanks to nandhp)
