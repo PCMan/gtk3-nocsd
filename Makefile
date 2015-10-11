@@ -5,18 +5,20 @@ LDLIBS = -ldl
 
 prefix ?= /usr/local
 libdir ?= $(prefix)/lib
+bindir ?= $(prefix)/bin
 
-all: libgtk3-nocsd.so.0 wrapper.sh
+all: libgtk3-nocsd.so.0 gtk3-nocsd
 
 clean:
-	rm -f libgtk3-nocsd.so.0 *.o wrapper.sh *~
+	rm -f libgtk3-nocsd.so.0 *.o gtk3-nocsd *~
 
 libgtk3-nocsd.so.0: gtk3-nocsd.o
 	$(CC) -shared $(CFLAGS) $(LDFLAGS) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
 
-wrapper.sh: wrapper.sh.in
+gtk3-nocsd: gtk3-nocsd.in
 	sed 's|@@libdir@@|$(libdir)|g' < $< > $@
-	chmod +x wrapper.sh
+	chmod +x $@
 
 install:
 	install -D -m 0644 libgtk3-nocsd.so.0 $(DESTDIR)$(libdir)/libgtk3-nocsd.so.0
+	install -D -m 0755 gtk3-nocsd $(DESTDIR)$(bindir)/gtk3-nocsd

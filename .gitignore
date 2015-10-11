@@ -1,3 +1,4 @@
 *.so.0
 *.o
 *~
+gtk3-nocsd

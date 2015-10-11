@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# wrapper.sh - Wrapper to apply gtk3-nocsd to application
+# gtk3-nocsd - Wrapper to apply gtk3-nocsd to application
 #
-# Usage: ln -s wrapper.sh ~/bin/evince
+# Usage: ln -s gtk3-nocsd ~/bin/evince
 #
 # Create a symlink to this wrapper script with the name of the program
 # you want run without client-side decorations. This wrapper script
@@ -13,7 +13,7 @@
 #
 
 # Location of gtk3-nocsd library
-NOCSDLIB="/usr/local/lib/libgtk3-nocsd.so.0"
+NOCSDLIB="@@libdir@@/libgtk3-nocsd.so.0"
 if [ -z "$NOCSDLIB" ] || ! [ -e "$NOCSDLIB" ]; then
     # Try looking in the same directory as the script
     NOCSDLIB="$(dirname "$(readlink -f "$0")")/libgtk3-nocsd.so.0"
