@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #
 # gtk3-nocsd - Wrapper to apply gtk3-nocsd to application
 #
@@ -72,10 +72,15 @@ fi
 
 # Find the real program (the first one that's not symlinked to get3-nocsd)
 APPNAME="$(basename "$0")"
-for APPPATH in $(type -Pa "$APPNAME") /bin/false; do
+for APPPATH in $(which -a "$APPNAME") /bin/false; do
     APPPATH_LINK="$(readlink -fe "$APPPATH")"
     [ x"${APPPATH_LINK##*/}"x = x"gtk3-nocsd"x ] || break
 done
+
+# Provide error message at all
+if [ x"$APPNAME"x != x"false"x ] && [ x"${APPPATH}"x = x"/bin/false"x ] ; then
+    APPPATH=/.gtk3-nocsd./"$APPNAME"
+fi
 
 # Run the program with CSD disabled
 export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
