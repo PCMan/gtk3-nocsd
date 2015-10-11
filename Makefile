@@ -6,6 +6,7 @@ LDLIBS = -ldl
 prefix ?= /usr/local
 libdir ?= $(prefix)/lib
 bindir ?= $(prefix)/bin
+mandir ?= $(prefix)/share/man
 
 all: libgtk3-nocsd.so.0 gtk3-nocsd
 
@@ -22,3 +23,4 @@ gtk3-nocsd: gtk3-nocsd.in
 install:
 	install -D -m 0644 libgtk3-nocsd.so.0 $(DESTDIR)$(libdir)/libgtk3-nocsd.so.0
 	install -D -m 0755 gtk3-nocsd $(DESTDIR)$(bindir)/gtk3-nocsd
+	install -D -m 0644 gtk3-nocsd.1 $(DESTDIR)$(mandir)/man1/gtk3-nocsd.1

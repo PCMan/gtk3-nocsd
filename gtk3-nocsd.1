@@ -1,0 +1,43 @@
+.TH gtk3-nocsd 1 "October 2015"
+.SH NAME
+gtk3-nocsd \- transparently disable Gtk+3 client side decorations (CSD)
+.SH SYNOPSIS
+.B gtk3-nocsd
+\fIcommand\fR [ \fIcommand arguments\fR ... ]
+.TP
+.B symlinked-command
+[ \fIcommand arguments\fR ... ]
+.SH DESCRIPTION
+\fBgtk3-nocsd\fR runs a command in the environment where Gtk+3 client side
+decorations (CSD) are disabled, by using LD_PRELOAD to load the library
+\fBlibgtk3-nocsd.so.0\fR that overrides some GLib, GDK and Gtk API calls
+with customized variants.
+.SH OPTIONS
+.TP
+.I command
+The command to execute. It may be either a full path or the name of the command
+in PATH. In case command cannot be found in PATH, \fBgtk3-nocsd\fR will fail.
+.TP
+.I command arguments
+Arbitrary number of arguments to pass to the command being executed.
+.SH USAGE VIA SYMLINKS
+If a symlink to \fBgtk3-nocsd\fR under a different name is called,
+\fBgtk3-nocsd\fR will assume that the name it was called under is the name
+of the command that is supposed to be executed. It will look for the command
+in the PATH environment variable, excluding itself, and execute it with the
+proper environment variables set. This is useful when is not desirable to add
+gtk3-nocsd to the system-wide LD_PRELOAD or if it should be applied only to
+certain applications.
+.SH CAVEATS
+.P
+When using \fBgtk3-nocsd\fR with \fBsetarch\fR (including alias such as
+\fBlinux32\fR), or anyway with chroots with different architectures than the
+host's, make sure to install the matching architecture version of
+\fBlibgtk3-nocsd.so.0\fR both in the \fBsetarch\fR environment and the host's
+environment. Note that the \fBgtk3-nocsd\fR binary must then be installed in
+a system path (\fI/usr/bin\fR, \fI/usr/local/bin\fR, ...), so that it will set
+LD_PRELOAD to just the library name and let the dynamic linker find it
+automatically - allowing the dynamic linker to pick the version for the
+correct architecture. If \fBgtk3-nocsd\fR is not installed in a system path,
+it will use a full path, allowing only for a single version of the library
+to be used.
