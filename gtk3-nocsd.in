@@ -12,13 +12,49 @@
 # applied to certain applications.
 #
 
-# Location of gtk3-nocsd library
-NOCSDLIB="@@libdir@@/libgtk3-nocsd.so.0"
-if [ -z "$NOCSDLIB" ] || ! [ -e "$NOCSDLIB" ]; then
-    # Try looking in the same directory as the script
-    NOCSDLIB="$(dirname "$(readlink -f "$0")")/libgtk3-nocsd.so.0"
+GTK3_NOCSD_NAME=libgtk3-nocsd.so.0
+
+# Determine if this script are installed in the system path
+GTK3_NOCSD_BINARY="$(readlink -fe "$(which "$0")")"
+case "${GTK3_NOCSD_BINARY%/*}" in
+    /sbin|/bin|/usr/bin|/usr/sbin|/usr/local/bin|/usr/local/sbin)  IN_SYSTEM_PATH=1  ;;
+    *)                                                             IN_SYSTEM_PATH=0  ;;
+esac
+
+# Determine if the library is in the system path. If that's the case,
+# just use the plain library name, because that way loading the library
+# on all architectures it's installed is supported (because the linker
+# will automatically pick out the right one).
+if [ $IN_SYSTEM_PATH -eq 1 ] ; then
+    if LC_ALL=C LD_PRELOAD="${GTK3_NOCSD_NAME}" /bin/true 2>&1  | grep LD_PRELOAD | grep -qF "${GTK3_NOCSD_NAME}" ; then
+        IN_SYSTEM_PATH=0
+    else
+        GTK3_NOCSD="${GTK3_NOCSD_NAME}"
+    fi
 fi
-export LD_PRELOAD="$NOCSDLIB:$LD_PRELOAD"
+
+if [ $IN_SYSTEM_PATH -eq 0 ] ; then
+    # Figure out where the library is installed. First try the path
+    # that was used when building gtk3-nocsd, then try the directory
+    # the binary is installed.
+    INSTALLED_PATH="@@libdir@@"
+    BINARY_PATH="${GTK3_NOCSD_BINARY%/*}"
+    GTK3_NOCSD=""
+    for _path in "$INSTALLED_PATH" "$BINARY_PATH" "${BINARY_PATH%/bin}/lib" ; do
+        if [ -e "${_path}/${GTK3_NOCSD_NAME}" ] ; then
+            GTK3_NOCSD="${_path}/${GTK3_NOCSD_NAME}"
+            break
+        fi
+    done
+    if [ -z "$GTK3_NOCSD" ] ; then
+        # this will _probably_ not work (unless the library is
+        # installed in a system path, but the binary wasn't), but at
+        # least the user will have a useful error message
+        GTK3_NOCSD="${GTK3_NOCSD_NAME}"
+    fi
+fi
+
+export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
 export GTK_CSD=0
 
 # Find the real program (the first one that's not a shell script)
