@@ -7,9 +7,9 @@
 # Create a symlink to this wrapper script with the name of the program
 # you want run without client-side decorations. This wrapper script
 # will run the first matching executable in the PATH that is *not* a
-# script. This wrapper script is useful if you don't want to add
-# gtk3-nocsd to your system-wide LD_PRELOAD or if you only want it
-# applied to certain applications.
+# symlink to gtk3-nocsd. This wrapper script is useful if you don't
+# want to add gtk3-nocsd to your system-wide LD_PRELOAD or if you only
+# want it applied to certain applications.
 #
 
 GTK3_NOCSD_NAME=libgtk3-nocsd.so.0
@@ -57,10 +57,11 @@ fi
 export LD_PRELOAD="${GTK3_NOCSD}${LD_PRELOAD:+:$LD_PRELOAD}"
 export GTK_CSD=0
 
-# Find the real program (the first one that's not a shell script)
+# Find the real program (the first one that's not symlinked to get3-nocsd)
 APPNAME="$(basename "$0")"
 for APPPATH in $(type -Pa "$APPNAME") /bin/false; do
-    head -c2 "$APPPATH" | grep '#!' >/dev/null || break
+    APPPATH_LINK="$(readlink -fe "$APPPATH")"
+    [ x"${APPPATH_LINK##*/}"x = x"gtk3-nocsd"x ] || break
 done
 
 # Run the program with CSD disabled
