@@ -24,8 +24,10 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <pthread.h>
+#include <errno.h>
 
 #include <stdarg.h>
 
@@ -100,6 +102,21 @@ static void * volatile library_handles[NUM_LIBRARIES * 2] = {
     NULL,
     NULL
 };
+
+static pthread_key_t key_tls;
+static pthread_once_t key_tls_once = PTHREAD_ONCE_INIT;
+
+typedef struct gtk3_nocsd_tls_data_t {
+  // When set to true, this override gdk_screen_is_composited() and let it
+  // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
+  volatile int disable_composite;
+  volatile int signal_capture_handler;
+  volatile gpointer signal_capture_instance;
+  volatile GCallback signal_capture_callback;
+} gtk3_nocsd_tls_data_t;
+
+static gtk3_nocsd_tls_data_t *tls_data_location();
+#define TLSD     (tls_data_location())
 
 __attribute__((destructor)) static void cleanup_library_handles(void) {
     int i;
@@ -292,10 +309,6 @@ static void static_g_log(const gchar *log_domain, GLogLevelFlags log_level, cons
     va_end (args);
 }
 
-// When set to true, this override gdk_screen_is_composited() and let it
-// return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
-volatile static __thread int disable_composite = 0;
-
 static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint micro) {
     static gtk_check_version_t orig_func = NULL;
     if(!orig_func)
@@ -433,11 +446,11 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     }
 
 orig_impl:
-    ++disable_composite;
+    ++(TLSD->disable_composite);
     orig_gtk_window_set_titlebar(window, titlebar);
     if(window && titlebar)
         set_has_custom_title(window, TRUE);
-    --disable_composite;
+    --(TLSD->disable_composite);
 }
 
 extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean setting)
@@ -449,7 +462,7 @@ extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean se
 
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
     if(is_compatible_gtk_version() && are_csd_disabled()) {
-        if(disable_composite)
+        if(TLSD->disable_composite)
             return FALSE;
     }
     return orig_gdk_screen_is_composited (screen);
@@ -474,9 +487,9 @@ typedef void (*gtk_window_realize_t)(GtkWidget* widget);
 static gtk_window_realize_t orig_gtk_window_realize = NULL;
 
 static void fake_gtk_window_realize(GtkWidget* widget) {
-    ++disable_composite;
+    ++(TLSD->disable_composite);
     orig_gtk_window_realize(widget);
-    --disable_composite;
+    --(TLSD->disable_composite);
 }
 
 static gtk_dialog_constructor_t orig_gtk_dialog_constructor = NULL;
@@ -484,9 +497,9 @@ static GClassInitFunc orig_gtk_dialog_class_init = NULL;
 static GType gtk_dialog_type = 0;
 
 static GObject *fake_gtk_dialog_constructor (GType type, guint n_construct_properties, GObjectConstructParam *construct_params) {
-    ++disable_composite;
+    ++(TLSD->disable_composite);
     GObject* obj = orig_gtk_dialog_constructor(type, n_construct_properties, construct_params);
-    --disable_composite;
+    --(TLSD->disable_composite);
     return obj;
 }
 
@@ -647,15 +660,11 @@ gint g_type_add_instance_private (GType class_type, gsize private_size)
     return orig_g_type_add_instance_private (class_type, private_size);
 }
 
-volatile static __thread int signal_capture_handler = 0;
-volatile static __thread gpointer signal_capture_instance = NULL;
-volatile static __thread GCallback signal_capture_callback = NULL;
-
 extern gulong g_signal_connect_data (gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data, GClosureNotify destroy_data, GConnectFlags connect_flags)
 {
-    if (G_UNLIKELY (signal_capture_handler)) {
-        if (signal_capture_instance == instance && strcmp (detailed_signal, "notify::title") == 0)
-            signal_capture_callback = c_handler;
+    if (G_UNLIKELY (TLSD->signal_capture_handler)) {
+        if (TLSD->signal_capture_instance == instance && strcmp (detailed_signal, "notify::title") == 0)
+            TLSD->signal_capture_callback = c_handler;
     }
     return orig_g_signal_connect_data (instance, detailed_signal, c_handler, data, destroy_data, connect_flags);
 }
@@ -725,12 +734,12 @@ static gtk_window_private_info_t gtk_window_private_info ()
             }
 
             /* Set the title bar via the original title bar function. */
-            signal_capture_callback = NULL;
-            signal_capture_handler = 1;
-            signal_capture_instance = dummy_bar;
+            TLSD->signal_capture_callback = NULL;
+            TLSD->signal_capture_handler = 1;
+            TLSD->signal_capture_instance = dummy_bar;
             orig_gtk_window_set_titlebar (dummy_window, GTK_WIDGET (dummy_bar));
-            signal_capture_handler = 0;
-            signal_capture_instance = NULL;
+            TLSD->signal_capture_handler = 0;
+            TLSD->signal_capture_instance = NULL;
 
             /* Now find the pointer in memory. */
             offset = find_unique_pointer_in_region (window_priv, gtk_window_private_size, dummy_bar);
@@ -739,12 +748,12 @@ static gtk_window_private_info_t gtk_window_private_info ()
                 goto out;
             }
 
-            if (signal_capture_callback == NULL) {
+            if (TLSD->signal_capture_callback == NULL) {
                 g_warning ("libgtk3-nocsd: error trying to determine this Gtk's callback routine for GtkHeaderBar/GtkWindow interaction");
                 goto out;
             }
 
-            info.on_titlebar_title_notify = (on_titlebar_title_notify_t) signal_capture_callback;
+            info.on_titlebar_title_notify = (on_titlebar_title_notify_t) TLSD->signal_capture_callback;
             info.title_box_offset = offset;
 out:
             if (dummy_window) gtk_widget_destroy (GTK_WIDGET (dummy_window));
@@ -772,4 +781,30 @@ gboolean g_function_info_prep_invoker (GIFunctionInfo *info, GIFunctionInvoker *
     }
 
     return result;
+}
+
+static void create_key_tls()
+{
+  int r;
+  r = pthread_key_create (&key_tls, free);
+  if (r < 0)
+    g_error ("libgtk3-nocsd: unable to initialize TLS data: %s", strerror(errno));
+}
+
+static gtk3_nocsd_tls_data_t *tls_data_location()
+{
+  void *ptr;
+  int r;
+
+  (void) pthread_once (&key_tls_once, create_key_tls);
+  if ((ptr = pthread_getspecific (key_tls)) == NULL) {
+    ptr = calloc (1, sizeof (gtk3_nocsd_tls_data_t));
+    if (!ptr)
+      g_error ("libgtk3-nocsd: unable to initialize TLS data: %s", strerror(errno));
+    r = pthread_setspecific (key_tls, ptr);
+    if (r < 0)
+      g_error ("libgtk3-nocsd: unable to initialize TLS data: %s", strerror(errno));
+  }
+
+  return (gtk3_nocsd_tls_data_t *) ptr;
 }

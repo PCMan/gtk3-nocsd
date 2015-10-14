@@ -10,3 +10,6 @@ New in version 2
   * fix crash with some GDK2 applications
   * add wrapper script for starting applications without CSDs
     (Thanks to nandhp)
+  * don't use compiler-supported TLS (__thread) but rather use
+    pthread_(get|set)specific, to make sure no DTV overflow entry
+    is used by this library (fixes GitHub issue #11)
