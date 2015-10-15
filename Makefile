@@ -1,7 +1,9 @@
 PKG_CONFIG ?= pkg-config
 CFLAGS ?= -O2 -g
-CFLAGS += $(shell ${PKG_CONFIG} --cflags gtk+-3.0) $(shell ${PKG_CONFIG} --cflags gobject-introspection-1.0) -pthread -Wall -fPIC
+override CFLAGS += $(shell ${PKG_CONFIG} --cflags gtk+-3.0) $(shell ${PKG_CONFIG} --cflags gobject-introspection-1.0) -pthread -Wall
 LDLIBS = -ldl
+CFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(CFLAGS)) -fPIC
+LDFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(LDFLAGS)) -fPIC
 
 prefix ?= /usr/local
 libdir ?= $(prefix)/lib
@@ -15,7 +17,10 @@ clean:
 	[ ! -d testlibs ] || rm -r testlibs
 
 libgtk3-nocsd.so.0: gtk3-nocsd.o
-	$(CC) -shared $(CFLAGS) $(LDFLAGS) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
+	$(CC) -shared $(CFLAGS_LIB) $(LDFLAGS_LIB) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
+
+gtk3-nocsd.o: gtk3-nocsd.c
+	$(CC) $(CPPFLAGS) $(CFLAGS_LIB) -o $@ -c $<
 
 gtk3-nocsd: gtk3-nocsd.in
 	sed 's|@@libdir@@|$(libdir)|g' < $< > $@
@@ -47,8 +52,8 @@ testlibs/stamp: test-dummylib.c
 	for i in A B C D E F G H I J K L M N O P Q R S T U V W X Y Z \
 	         a b c d e f g h i j k l m n o p q r s t u v w x y z \
 	         0 1 2 3 4 5 6 7 8 9 ; do \
-	  $(CC) $(CFLAGS) $(CPPFLAGS) -ftls-model=initial-exec -DTESTLIB_NAME=$$i -c -o testlibs/libdummy-$$i.o test-dummylib.c ; \
-	  $(CC) -shared $(CFLAGS) $(LDFLAGS) -Wl,-soname,libdummy-$$i.so.0 -o testlibs/libdummy-$$i.so.0 testlibs/libdummy-$$i.o $(LDLIBS) ; \
+	  $(CC) $(CPPFLAGS) $(CFLAGS_LIB) -ftls-model=initial-exec -DTESTLIB_NAME=$$i -c -o testlibs/libdummy-$$i.o test-dummylib.c ; \
+	  $(CC) -shared $(CFLAGS_LIB) $(LDFLAGS_LIB) -Wl,-soname,libdummy-$$i.so.0 -o testlibs/libdummy-$$i.so.0 testlibs/libdummy-$$i.o $(LDLIBS) ; \
 	done
 	touch testlibs/stamp
 
