@@ -5,10 +5,12 @@ LDLIBS = -ldl
 CFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(CFLAGS)) -fPIC
 LDFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(LDFLAGS)) -fPIC
 
-prefix ?= /usr/local
-libdir ?= $(prefix)/lib
-bindir ?= $(prefix)/bin
-mandir ?= $(prefix)/share/man
+prefix            ?= /usr/local
+libdir            ?= $(prefix)/lib
+bindir            ?= $(prefix)/bin
+datadir           ?= ${prefix}/share
+mandir            ?= $(datadir)/man
+bashcompletiondir ?= ${datadir}/bash-completion/completions
 
 all: libgtk3-nocsd.so.0 gtk3-nocsd
 
@@ -30,6 +32,7 @@ install:
 	install -D -m 0644 libgtk3-nocsd.so.0 $(DESTDIR)$(libdir)/libgtk3-nocsd.so.0
 	install -D -m 0755 gtk3-nocsd $(DESTDIR)$(bindir)/gtk3-nocsd
 	install -D -m 0644 gtk3-nocsd.1 $(DESTDIR)$(mandir)/man1/gtk3-nocsd.1
+	install -D -m 0644 gtk3-nocsd.bash-completion $(DESTDIR)$(bashcompletiondir)/gtk3-nocsd
 
 check: libgtk3-nocsd.so.0 testlibs/stamp test-static-tls
 	@echo "RUNNING: test-static-tls"
