@@ -64,14 +64,17 @@ This is how the gtk3 windows look like before and after using
           fi
         fi
 
+  gtk3-nocsd is now packaged for Debian though (see below), so manual
+  installation may not be necessary.
+
 * Re-login to make the environment variables take effect.
 
 * Hooray! GTK+ 3 client-side decorations are disabled now.
 
 #Distribution packages:
 
-gtk3-nocsd is packaged in Debian's unstable distribution, see
-[gtk3-nocsd in Debian's package database](https://packages.debian.org/unstable/gtk3-nocsd).
+gtk3-nocsd is packaged in Debian's unstable and testing distributions,
+see [gtk3-nocsd in Debian's package database](https://packages.debian.org/testing/gtk3-nocsd).
 The Debian package already comes with integration code to automatically
 disable CSDs when installed, so after package installation only a
 re-login is required to have CSDs disabled on non-GNOME desktops.
