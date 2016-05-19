@@ -614,6 +614,7 @@ out:
 }
 
 static gtk_window_buildable_add_child_t orig_gtk_window_buildable_add_child = NULL;
+static gtk_window_buildable_add_child_t orig_gtk_dialog_buildable_add_child = NULL;
 
 static void fake_gtk_window_buildable_add_child (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type) {
     if (type && strcmp (type, "titlebar") == 0) {
@@ -623,7 +624,16 @@ static void fake_gtk_window_buildable_add_child (GtkBuildable *buildable, GtkBui
     orig_gtk_window_buildable_add_child(buildable, builder, child, type);
 }
 
+static void fake_gtk_dialog_buildable_add_child (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type) {
+    if (type && strcmp (type, "titlebar") == 0) {
+        gtk_window_set_titlebar (GTK_WINDOW (buildable), GTK_WIDGET (child));
+        return;
+    }
+    orig_gtk_dialog_buildable_add_child(buildable, builder, child, type);
+}
+
 static GInterfaceInitFunc orig_gtk_window_buildable_interface_init = NULL;
+static GInterfaceInitFunc orig_gtk_dialog_buildable_interface_init = NULL;
 
 static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, gpointer data)
 {
@@ -634,13 +644,25 @@ static void fake_gtk_window_buildable_interface_init (GtkBuildableIface *iface, 
     // iface->set_buildable_property = gtk_window_buildable_set_buildable_property;
 }
 
+static void fake_gtk_dialog_buildable_interface_init (GtkBuildableIface *iface, gpointer data)
+{
+    orig_gtk_dialog_buildable_interface_init(iface, data);
+    orig_gtk_dialog_buildable_add_child = iface->add_child;
+    iface->add_child = fake_gtk_dialog_buildable_add_child;
+}
+
 void g_type_add_interface_static (GType instance_type, GType interface_type, const GInterfaceInfo *info) {
-    if(is_compatible_gtk_version() && are_csd_disabled() && instance_type == gtk_window_type) {
+    if(is_compatible_gtk_version() && are_csd_disabled() && (instance_type == gtk_window_type || instance_type == gtk_dialog_type)) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
-            // register GtkBuildable interface for GtkWindow class
+            // register GtkBuildable interface for GtkWindow/GtkDialog class
             GInterfaceInfo fake_info = *info;
-            orig_gtk_window_buildable_interface_init = info->interface_init;
-            fake_info.interface_init = (GInterfaceInitFunc)fake_gtk_window_buildable_interface_init;
+            if (instance_type == gtk_window_type) {
+                orig_gtk_window_buildable_interface_init = info->interface_init;
+                fake_info.interface_init = (GInterfaceInitFunc)fake_gtk_window_buildable_interface_init;
+            } else {
+                orig_gtk_dialog_buildable_interface_init = info->interface_init;
+                fake_info.interface_init = (GInterfaceInitFunc)fake_gtk_dialog_buildable_interface_init;
+            }
             orig_g_type_add_interface_static (instance_type, interface_type, &fake_info);
             return;
         }
