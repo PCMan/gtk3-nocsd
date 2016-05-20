@@ -461,7 +461,10 @@ extern void gtk_header_bar_set_show_close_button (GtkHeaderBar *bar, gboolean se
 }
 
 extern gboolean gdk_screen_is_composited (GdkScreen *screen) {
-    if(is_compatible_gtk_version() && are_csd_disabled()) {
+    /* With Gtk+3 3.16.1+ we reimplement gtk_window_set_titlebar ourselves, hence
+     * we don't want to re-use the compositing hack, especially since it causes
+     * problems in newer Gtk versions. */
+    if(is_compatible_gtk_version() && are_csd_disabled() && !is_gtk_version_larger_or_equal(3, 16, 1)) {
         if(TLSD->disable_composite)
             return FALSE;
     }

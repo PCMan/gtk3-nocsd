@@ -82,11 +82,15 @@ re-login is required to have CSDs disabled on non-GNOME desktops.
 #How it works:
 
 `$LD_PRELOAD` is used to override several Gdk and glib/gobject APIs to
-intercept related calls Gtk+ 3 uses to setup CSDs. While Gtk+ 3 is
-trying to initialize CSDs, it is led to believe that there is no
-compositor available, so CSDs are not added. For later Gtk+ 3 versions,
-the `gtk_window_set_titlebar` method is re-implemented, as they do not
-allow for the disabling of CSDs via the compositor trick. Since X
-compositing is never really disabled (nor are other parts of Gtk+ 3 led
-to believe so), this does not have adverse consequences. This appears
-to be the simplest way to disable CSDs without obvious side effects.
+intercept related calls Gtk+ 3 uses to setup CSDs. For older versions
+of Gtk+ 3, while it is trying to initialize CSDs, it is led to believe
+that there is no compositor available, so CSDs are not added. For later
+Gtk+ 3 versions (3.16.1+), the `gtk_window_set_titlebar` method is
+reimplemented, as tricking Gtk+ 3 into thinking the compositor is
+disabled has side effects and is not sufficent anymore.
+
+Additionally, as gtk_window_set_titlebar is also called from Gtk+
+internally (and LD_PRELOAD cannot override function calls within a
+library), several other places in Gtk+3 (e.g. buildable interfaces for
+GtkWindow and GtkDialog) are also overridden to ensure that CSDs are
+disabled.
