@@ -15,7 +15,7 @@ bashcompletiondir ?= ${datadir}/bash-completion/completions
 all: libgtk3-nocsd.so.0 gtk3-nocsd
 
 clean:
-	rm -f libgtk3-nocsd.so.0 *.o gtk3-nocsd test-static-tls *~
+	rm -f libgtk3-nocsd.so.0 *.o gtk3-nocsd test-static-tls test-now *~
 	[ ! -d testlibs ] || rm -r testlibs
 
 libgtk3-nocsd.so.0: gtk3-nocsd.o
@@ -34,7 +34,7 @@ install:
 	install -D -m 0644 gtk3-nocsd.1 $(DESTDIR)$(mandir)/man1/gtk3-nocsd.1
 	install -D -m 0644 gtk3-nocsd.bash-completion $(DESTDIR)$(bashcompletiondir)/gtk3-nocsd
 
-check: libgtk3-nocsd.so.0 testlibs/stamp test-static-tls
+check: libgtk3-nocsd.so.0 testlibs/stamp test-static-tls test-now
 	@echo "RUNNING: test-static-tls"
 	@[ "$$(LD_PRELOAD= ./test-static-tls none)" = "$$(LD_PRELOAD=./libgtk3-nocsd.so.0 ./test-static-tls gtk3-nocsd)" ] || \
 		{ echo "   Without any library preloaded: can dlopen() up to the following number of libraries with static TLS:" ; \
@@ -44,6 +44,11 @@ check: libgtk3-nocsd.so.0 testlibs/stamp test-static-tls
 		  echo "   These should match, but they don't." ; \
 		  exit 1; \
 		}
+	@echo "RUNNING: test-symbols"
+	@# Force LD_BIND_NOW to make sure we don't accidentally import
+	@# any symbols from glib/gdk/gtk directly. (This ensures
+	@# compatibility with software that is linked with -Wl,-z,now.)
+	@LD_PRELOAD=./libgtk3-nocsd.so.0 LD_BIND_NOW=1 ./test-now
 
 testlibs/stamp: test-dummylib.c
 	@# Build a lot of dummy libraries. test-static-tls tries to load all
@@ -62,3 +67,6 @@ testlibs/stamp: test-dummylib.c
 
 test-static-tls: test-static-tls.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o test-static-tls test-static-tls.o $(LDLIBS)
+
+test-now: test-now.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o test-now test-now.o $(LDLIBS)
