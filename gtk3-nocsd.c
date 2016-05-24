@@ -235,6 +235,8 @@ try_gtk2_version:
         return orig_func arg_use_list; \
     }
 
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_css_provider_new, GtkCssProvider *, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_css_provider_load_from_data, void, (GtkCssProvider *provider, const gchar *data, gssize length, GError **error), (provider, data, length, error))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_new, GtkWidget *, (GtkWindowType type), (type))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_new, GtkWidget *, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_get_type, GType, (), ())
@@ -247,6 +249,8 @@ RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_set_decoration_layout, vo
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_get_decoration_layout, const gchar *, (GtkHeaderBar *bar), (bar))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_remove_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_provider, void, (GtkStyleContext *context, GtkStyleProvider *provider, guint priority), (context, provider, priority))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_provider_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_destroy, void, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_mapped, gboolean, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_realized, gboolean, (GtkWidget *widget), (widget))
@@ -294,6 +298,8 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 /* All methods that we want to overwrite are named orig_, all methods
  * that we just want to call (either directly or indirectrly)
  */
+#define gtk_css_provider_new                             rtlookup_gtk_css_provider_new
+#define gtk_css_provider_load_from_data                  rtlookup_gtk_css_provider_load_from_data
 #define gtk_window_new                                   rtlookup_gtk_window_new
 #define gtk_header_bar_new                               rtlookup_gtk_header_bar_new
 #define gtk_window_get_type                              rtlookup_gtk_window_get_type
@@ -306,6 +312,8 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define orig_gtk_header_bar_get_decoration_layout        rtlookup_gtk_header_bar_get_decoration_layout
 #define gtk_style_context_add_class                      rtlookup_gtk_style_context_add_class
 #define gtk_style_context_remove_class                   rtlookup_gtk_style_context_remove_class
+#define gtk_style_context_add_provider                   rtlookup_gtk_style_context_add_provider
+#define gtk_style_provider_get_type                      rtlookup_gtk_style_provider_get_type
 #define gtk_widget_destroy                               rtlookup_gtk_widget_destroy
 #define gtk_widget_get_mapped                            rtlookup_gtk_widget_get_mapped
 #define gtk_widget_get_realized                          rtlookup_gtk_widget_get_realized
@@ -437,6 +445,72 @@ static GType gtk_header_bar_type = -1;
 static gtk_window_private_info_t gtk_window_private_info ();
 static gtk_header_bar_private_info_t gtk_header_bar_private_info ();
 
+static GtkStyleProvider *get_custom_css_provider ()
+{
+    static GtkStyleProvider *volatile provider = NULL;
+    static pthread_mutex_t provider_mutex = PTHREAD_MUTEX_INITIALIZER;
+    /* This CSS works around some design issues with the header bar
+     * when used with gtk3-nocsd. We first disable the padding, else
+     * the "drop shadow" (actually a bottom border) of the header bar
+     * doesn't fill out the entire window and the edges look weird.
+     * With CSD Gtk's CSS also disables the padding, so this should be
+     * safe and relatively theme-agnostic. (There is additional padding
+     * inside child widgets, this padding was only 1px or so anyway.)
+     * Next, we make sure that the edges aren't rounded anymore, to
+     * make sure that there are no small black pixels on the top left
+     * and top right side of the window contents. This should also be
+     * theme-agnostic.
+     * IMPORTANT: The CSS selectors here have to have the same (or
+     * higher) selectivity than the selectors used in the theme's CSS.
+     * Otherwise the settings here will not take effect, even though
+     * this CSS here has a higher priority. See
+     * <https://www.w3.org/TR/selectors/#specificity> for details.
+     */
+    static const char *custom_css =
+      "window > .titlebar:not(headerbar) {\n"
+      "  padding: 0;\n"
+      "}\n"
+      ".background:not(.tiled):not(.maximized) .titlebar:backdrop,\n"
+      ".background:not(.tiled):not(.maximized) .titlebar {\n"
+      "  border-top-left-radius: 0;\n"
+      "  border-top-right-radius: 0;\n"
+      "}\n"
+      "";
+
+    if (G_UNLIKELY (provider == NULL)) {
+        GtkCssProvider *new_provider;
+
+        pthread_mutex_lock(&provider_mutex);
+        if (provider != NULL) {
+            /* Handle race condition. */
+            pthread_mutex_unlock(&provider_mutex);
+            return provider;
+        }
+
+        new_provider = gtk_css_provider_new ();
+        gtk_css_provider_load_from_data (new_provider, custom_css, -1, NULL);
+
+        provider = GTK_STYLE_PROVIDER (new_provider);
+        pthread_mutex_unlock(&provider_mutex);
+    }
+
+    return provider;
+}
+
+static void add_custom_css (GtkWidget *widget)
+{
+    GtkStyleContext *context = gtk_widget_get_style_context (widget);
+    GtkStyleProvider *my_provider = get_custom_css_provider ();
+
+    if (!context || !my_provider)
+        return;
+
+    /* Use a higher priority than SETTINGS, but lower than APPLICATION.
+     * add_provider will make sure a given provider is not added twice.
+     */
+    gtk_style_context_add_provider (context, my_provider, GTK_STYLE_PROVIDER_PRIORITY_SETTINGS + 50);
+}
+
 // This API exists since gtk+ 3.10
 extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
     if(!is_compatible_gtk_version() || !are_csd_disabled()) {
@@ -499,6 +573,8 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
 
         gtk_style_context_add_class (gtk_widget_get_style_context (titlebar),
                                GTK_STYLE_CLASS_TITLEBAR);
+
+        add_custom_css (titlebar);
 
         if (was_mapped)
             gtk_widget_map (widget);
