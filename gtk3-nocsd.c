@@ -241,6 +241,7 @@ RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_new, GtkWidget *, (GtkWindowT
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_new, GtkWidget *, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_get_type, GType, (), ())
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_get_titlebar, GtkWidget *, (GtkWindow *window), (window))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_buildable_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_window_set_titlebar, void, (GtkWindow *window, GtkWidget *titlebar), (window, titlebar))
@@ -266,6 +267,8 @@ RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_screen_is_composited, gboolean, (Gdk
 RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
 RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_get_data, gpointer, (GObject *object, const gchar *key), (object, key))
 RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_set_data, void, (GObject *object, const gchar *key, gpointer data), (object, key, data))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_ref, gpointer, (gpointer object), (object))
+RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_object_unref, void, (gpointer object), (object))
 RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_class_cast, GTypeClass *, (GTypeClass *g_class, GType is_a_type), (g_class, is_a_type))
 RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_instance_is_a, gboolean, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
 RUNTIME_IMPORT_FUNCTION(0, GOBJECT_LIBRARY, g_type_check_instance_cast, GTypeInstance *, (GTypeInstance *instance, GType iface_type), (instance, iface_type))
@@ -306,6 +309,7 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define gtk_header_bar_get_type                          rtlookup_gtk_header_bar_get_type
 #define gtk_widget_get_type                              rtlookup_gtk_widget_get_type
 #define gtk_buildable_get_type                           rtlookup_gtk_buildable_get_type
+#define gtk_window_get_titlebar                          rtlookup_gtk_window_get_titlebar
 #define orig_gtk_window_set_titlebar                     rtlookup_gtk_window_set_titlebar
 #define orig_gtk_header_bar_set_show_close_button        rtlookup_gtk_header_bar_set_show_close_button
 #define orig_gtk_header_bar_set_decoration_layout        rtlookup_gtk_header_bar_set_decoration_layout
@@ -333,6 +337,8 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define g_object_class_find_property                     rtlookup_g_object_class_find_property
 #define g_object_get_valist                              rtlookup_g_object_get_valist
 #define g_object_get_property                            rtlookup_g_object_get_property
+#define g_object_ref                                     rtlookup_g_object_ref
+#define g_object_unref                                   rtlookup_g_object_unref
 #define g_value_init                                     rtlookup_g_value_init
 #define g_value_unset                                    rtlookup_g_value_unset
 #define g_value_get_string                               rtlookup_g_value_get_string
@@ -967,6 +973,29 @@ static void fake_gtk_header_bar_class_init (GtkWindowClass *klass, gpointer data
     }
 }
 
+static GInstanceInitFunc orig_gtk_shortcuts_window_init = NULL;
+
+static void fake_gtk_shortcuts_window_init (GtkWindow *window, gpointer klass) {
+    GtkHeaderBar *title_bar;
+
+    orig_gtk_shortcuts_window_init ((GTypeInstance *) window, klass);
+    /* call our own set_titlebar to make sure we disable CSDs
+     * (the original Gtk function calls Gtk's internal set_titlebar) */
+    title_bar = GTK_HEADER_BAR (gtk_window_get_titlebar (window));
+    if (title_bar) {
+        /* We need to take a reference out on the title_bar, because
+         * unsetting it will unref() it indirectly via gtk_widget_unparent(),
+         * which would otherwise call the destructor, because it's only
+         * referenced once. */
+        g_object_ref (title_bar);
+        orig_gtk_window_set_titlebar (window, NULL);
+        gtk_window_set_titlebar (window, GTK_WIDGET (title_bar));
+        /* Drop our own reference (because it's not floating, and set_titlebar
+         * calls ref_sink indirectly via set_parent) */
+        g_object_unref (title_bar);
+    }
+}
+
 GType g_type_register_static_simple (GType parent_type, const gchar *type_name, guint class_size, GClassInitFunc class_init, guint instance_size, GInstanceInitFunc instance_init, GTypeFlags flags) {
     GType type;
     GType *save_type = NULL;
@@ -1002,6 +1031,17 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
                 save_type = &gtk_header_bar_type;
+                goto out;
+            }
+        }
+    }
+
+    if(!orig_gtk_shortcuts_window_init) { // GtkShortcutsWindow::constructor is not overriden
+        if(type_name && G_UNLIKELY(strcmp(type_name, "GtkShortcutsWindow") == 0)) {
+            // override GtkShortcutsWindowClass
+            orig_gtk_shortcuts_window_init = instance_init;
+            if(is_compatible_gtk_version() && are_csd_disabled()) {
+                instance_init = (GInstanceInitFunc) fake_gtk_shortcuts_window_init;
                 goto out;
             }
         }
