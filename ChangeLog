@@ -1,6 +1,30 @@
 gtk3-nocsd ChangeLog
 ====================
 
+New in version 3
+----------------
+
+  * Improvements to the documentation (Thanks to Bharat G)
+  * Add bash completion support for gtk3-nocsd wrapper
+  * Also override GtkDialog's GtkBuildable->add_child and the instance
+    initializer of GtkShortcutsWindow; previously CSDs weren't removed
+    from all windows because of that
+  * Drop compositor trick in Gtk+3 3.16.1 or higher; we reimplement the
+    set_titlebar function there anyway, and the compositor trick only
+    causes problems with newer Gtk+3 versions
+  * Selectively disable decorations: don't drop the application menu
+    icon by using set_show_close_button (FALSE), but instead replace
+    the decoration_layout string of header bars to remove the "icon",
+    "minimize", "maximize" and "close" buttons
+  * Add a test that verifies that no Glib/Gtk symbols are imported
+    during link time (to make sure preloading works with BINDNOW
+    binaries that don't use Gtk)
+  * Apply custom CSS for cosmetic improvements of the header bar look
+    when CSDs are disabled (should be largely theme-agnostic, but
+    tested against Adwaita)
+  * Thanks to Christoph Anton Mitterer for reporting many of these
+    issues
+
 New in version 2
 ----------------
 
