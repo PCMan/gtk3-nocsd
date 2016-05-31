@@ -475,6 +475,8 @@ static GtkStyleProvider *get_custom_css_provider ()
     static const char *custom_css =
       "window > .titlebar:not(headerbar) {\n"
       "  padding: 0;\n"
+      "  border-style: none;\n"
+      "  border-color: transparent;\n"
       "}\n"
       ".background:not(.tiled):not(.maximized) .titlebar:backdrop,\n"
       ".background:not(.tiled):not(.maximized) .titlebar {\n"
