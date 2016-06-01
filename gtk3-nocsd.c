@@ -374,7 +374,7 @@ static void static_g_log(const gchar *log_domain, GLogLevelFlags log_level, cons
     va_end (args);
 }
 
-static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint micro) {
+static gboolean is_gtk_version_larger_or_equal2(guint major, guint minor, guint micro, int* gtk_loaded) {
     static gtk_check_version_t orig_func = NULL;
     if(!orig_func)
         orig_func = (gtk_check_version_t)find_orig_function(0, GTK_LIBRARY, "gtk_check_version");
@@ -388,9 +388,19 @@ static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint m
      * will give us a reference to gtk_check_version. But since
      * that symbol is compatible with gtk3, this doesn't hurt.
      */
-     if (orig_func)
+     if (orig_func) {
+         if (gtk_loaded)
+             *gtk_loaded = TRUE;
         return (orig_func(major, minor, micro) == NULL);
-    return FALSE;
+     } else {
+         if (gtk_loaded)
+             *gtk_loaded = FALSE;
+        return FALSE;
+     }
+}
+
+static gboolean is_gtk_version_larger_or_equal(guint major, guint minor, guint micro) {
+    return is_gtk_version_larger_or_equal2(major, minor, micro, NULL);
 }
 
 static gboolean are_csd_disabled() {
@@ -408,15 +418,22 @@ static gboolean is_compatible_gtk_version() {
      * memory barriers. */
     static volatile gboolean checked = FALSE;
     static volatile gboolean compatible = FALSE;
+    int gtk_loaded = FALSE;
 
     if(G_UNLIKELY(!checked)) {
-        if (!is_gtk_version_larger_or_equal(3, 10, 0)) {
+        if (!is_gtk_version_larger_or_equal2(3, 10, 0, &gtk_loaded)) {
             /* CSD was introduced there */
             compatible = FALSE;
         } else {
             compatible = TRUE;
         }
-        checked = TRUE;
+        /* If in a dynamical program (e.g. using python-gi) Glib is loaded before
+         * Gtk, then the Gtk version check is executed before Gtk is even loaded,
+         * returning FALSE and caching it. This will not disable CSD if Gtk is
+         * loaded later. To circumvent this, cache the value only if we know that
+         * Gtk is loaded. */
+        if (gtk_loaded)
+            checked = TRUE;
     }
 
     return compatible;
