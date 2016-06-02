@@ -49,6 +49,9 @@ This is how the gtk3 windows look like before and after using
         export GTK_CSD=0
         export LD_PRELOAD=<"full path" of your libgtk3-nocsd.so.0 file>
 
+* On Arch Linux, you should use `~/.xsession` instead of `~/.bashrc`
+  for the CSDs to be disabled properly.
+
 * On Debian-based systems with graphical login, instead modify (or
   create) `~/.xsessionrc` and add the following code:
 
@@ -78,6 +81,9 @@ see [gtk3-nocsd in Debian's package database](https://packages.debian.org/testin
 The Debian package already comes with integration code to automatically
 disable CSDs when installed, so after package installation only a
 re-login is required to have CSDs disabled on non-GNOME desktops.
+
+There is also a [gtk3-nocsd-git](https://aur.archlinux.org/packages/gtk3-nocsd-git/)
+package for Arch Linux.
 
 #How it works:
 
