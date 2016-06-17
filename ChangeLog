@@ -7,6 +7,8 @@ New in version 4 (unreleased)
   * Support python-gi again by not caching the result of the version
     check if Gtk is not yet loaded. (python-gi loads Glib before it
     loads Gtk.)
+  * Handle the case when both Gtk+3 and Gtk+2 are loaded (e.g. via
+    different plugins), but Gtk+2 is used.
 
 New in version 3
 ----------------

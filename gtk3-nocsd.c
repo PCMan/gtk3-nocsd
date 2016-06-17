@@ -22,6 +22,7 @@
 
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <link.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
@@ -111,6 +112,12 @@ static void * volatile library_handles[NUM_LIBRARIES * 2] = {
 static pthread_key_t key_tls;
 static pthread_once_t key_tls_once = PTHREAD_ONCE_INIT;
 
+/* Marking both as volatile here saves the trouble of caring about
+ * memory barriers. */
+static volatile gboolean is_compatible_gtk_version_cached = FALSE;
+static volatile gboolean is_compatible_gtk_version_checked = FALSE;
+static volatile int gtk2_active;
+
 typedef struct gtk3_nocsd_tls_data_t {
   // When set to true, this override gdk_screen_is_composited() and let it
   // return FALSE temporarily. Then, client-side decoration (CSD) cannot be initialized.
@@ -139,6 +146,12 @@ __attribute__((destructor)) static void cleanup_library_handles(void) {
 static void *find_orig_function(int try_gtk2, int library_id, const char *symbol) {
     void *handle;
     void *symptr;
+
+    /* Ok, so in case both gtk2 + gtk3 are loaded, but we are using
+     * gtk2, we don't know what RTLD_NEXT is going to choose - so we
+     * must explicitly pick up the gtk2 versions... */
+    if (try_gtk2 && gtk2_active)
+        goto try_gtk2_version;
 
     /* This will work in most cases, and is completely thread-safe. */
     handle = dlsym(RTLD_NEXT, symbol);
@@ -374,6 +387,42 @@ static void static_g_log(const gchar *log_domain, GLogLevelFlags log_level, cons
     va_end (args);
 }
 
+int check_gtk2_callback(struct dl_phdr_info *info, size_t size, void *pointer)
+{
+    ElfW(Half) n;
+
+    if (G_UNLIKELY(strstr(info->dlpi_name, GDK_LIBRARY_SONAME_V2))) {
+        for (n = 0; n < info->dlpi_phnum; n++) {
+            uintptr_t start = (uintptr_t) (info->dlpi_addr + info->dlpi_phdr[n].p_vaddr);
+            uintptr_t end   = start + (uintptr_t) info->dlpi_phdr[n].p_memsz;
+            if ((uintptr_t) pointer >= start && (uintptr_t) pointer < end) {
+                gtk2_active = 1;
+                /* The gtk version check could have already been cached
+                 * before we were able to determine that gtk2 is in
+                 * use, so force this to FALSE. (Regardless of  the
+                 * _checked value.) */
+                is_compatible_gtk_version_cached = FALSE;
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+static void detect_gtk2(void *pointer)
+{
+    if (gtk2_active)
+        return;
+    /* There is a corner case where a program with plugins loads
+     * multiple plugins, some of which are linked against gtk2, while
+     * others are linked against gtk3. If the gtk2 plugins are used,
+     * this causes problems if we detect gtk3 just on the fact of
+     * whether gtk3 is loaded. Hence we iterate over all loaded
+     * libraries and if the pointer passed to us is within the memory
+     * region of gtk2, we set a global flag. */
+    dl_iterate_phdr(check_gtk2_callback, pointer);
+}
+
 static gboolean is_gtk_version_larger_or_equal2(guint major, guint minor, guint micro, int* gtk_loaded) {
     static gtk_check_version_t orig_func = NULL;
     if(!orig_func)
@@ -414,18 +463,16 @@ static gboolean are_csd_disabled() {
 }
 
 static gboolean is_compatible_gtk_version() {
-    /* Marking both as volatile here saves the trouble of caring about
-     * memory barriers. */
-    static volatile gboolean checked = FALSE;
-    static volatile gboolean compatible = FALSE;
     int gtk_loaded = FALSE;
 
-    if(G_UNLIKELY(!checked)) {
-        if (!is_gtk_version_larger_or_equal2(3, 10, 0, &gtk_loaded)) {
+    if(G_UNLIKELY(!is_compatible_gtk_version_checked)) {
+        if (gtk2_active) {
+            is_compatible_gtk_version_cached = FALSE;
+	} else if (!is_gtk_version_larger_or_equal2(3, 10, 0, &gtk_loaded)) {
             /* CSD was introduced there */
-            compatible = FALSE;
+            is_compatible_gtk_version_cached = FALSE;
         } else {
-            compatible = TRUE;
+            is_compatible_gtk_version_cached = TRUE;
         }
         /* If in a dynamical program (e.g. using python-gi) Glib is loaded before
          * Gtk, then the Gtk version check is executed before Gtk is even loaded,
@@ -433,10 +480,10 @@ static gboolean is_compatible_gtk_version() {
          * loaded later. To circumvent this, cache the value only if we know that
          * Gtk is loaded. */
         if (gtk_loaded)
-            checked = TRUE;
+            is_compatible_gtk_version_checked = TRUE;
     }
 
-    return compatible;
+    return is_compatible_gtk_version_cached;
 }
 
 static void set_has_custom_title(GtkWindow* window, gboolean set) {
@@ -1023,6 +1070,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkWindow") == 0)) {
             // override GtkWindowClass
             orig_gtk_window_class_init = class_init;
+            detect_gtk2((void *) class_init);
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_window_class_init;
                 save_type = &gtk_window_type;
@@ -1035,6 +1083,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkDialog") == 0)) {
             // override GtkDialogClass
             orig_gtk_dialog_class_init = class_init;
+            detect_gtk2((void *) class_init);
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_dialog_class_init;
                 save_type = &gtk_dialog_type;
@@ -1047,6 +1096,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkHeaderBar") == 0)) {
             // override GtkHeaderBarClass
             orig_gtk_header_bar_class_init = class_init;
+            detect_gtk2((void *) class_init);
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 class_init = (GClassInitFunc)fake_gtk_header_bar_class_init;
                 save_type = &gtk_header_bar_type;
@@ -1059,6 +1109,7 @@ GType g_type_register_static_simple (GType parent_type, const gchar *type_name, 
         if(type_name && G_UNLIKELY(strcmp(type_name, "GtkShortcutsWindow") == 0)) {
             // override GtkShortcutsWindowClass
             orig_gtk_shortcuts_window_init = instance_init;
+            detect_gtk2((void *) instance_init);
             if(is_compatible_gtk_version() && are_csd_disabled()) {
                 instance_init = (GInstanceInitFunc) fake_gtk_shortcuts_window_init;
                 goto out;
@@ -1112,6 +1163,9 @@ static void fake_gtk_dialog_buildable_interface_init (GtkBuildableIface *iface, 
 }
 
 void g_type_add_interface_static (GType instance_type, GType interface_type, const GInterfaceInfo *info) {
+    if (info && info->interface_init)
+        detect_gtk2((void *) info->interface_init);
+
     if(is_compatible_gtk_version() && are_csd_disabled() && (instance_type == gtk_window_type || instance_type == gtk_dialog_type)) {
         if(interface_type == GTK_TYPE_BUILDABLE) {
             // register GtkBuildable interface for GtkWindow/GtkDialog class
