@@ -1,9 +1,9 @@
-#gtk3-nocsd
+# gtk3-nocsd
 
 gtk3-nocsd is a small module used to disable the client side decoration
 of Gtk+ 3.
 
-##Introduction:
+## Introduction:
 Since Gtk+ 3.10, its developers added a so-called header bar or custom
 title bar. With this and the client-side decoration, the original title
 bar and window border provided by the window manager are disabled by
@@ -16,7 +16,7 @@ standards and provide "no option" to turn it off.
 Luckily, with gtk3-nocsd, we still have a way to (partially) turn it
 off. Window manager (title bar and window border) can be re-enabled.
 
-##Preview:
+## Preview:
 This is how the gtk3 windows look like before and after using
 `gtk3-nocsd`.
 
@@ -24,7 +24,7 @@ This is how the gtk3 windows look like before and after using
 
 ![Screenshot of gedit with CSDs disabled by gtk3-nocsd](gedit-without-csd.png)
 
-#How to use:
+# How to use:
 
 * gtk3-nocsd should work with all Gtk+ 3 versions.
 
@@ -74,7 +74,7 @@ This is how the gtk3 windows look like before and after using
 
 * Hooray! GTK+ 3 client-side decorations are disabled now.
 
-#Distribution packages:
+# Distribution packages:
 
 gtk3-nocsd is packaged in Debian's unstable and testing distributions,
 see [gtk3-nocsd in Debian's package database](https://packages.debian.org/testing/gtk3-nocsd).
@@ -85,7 +85,7 @@ re-login is required to have CSDs disabled on non-GNOME desktops.
 There is also a [gtk3-nocsd-git](https://aur.archlinux.org/packages/gtk3-nocsd-git/)
 package for Arch Linux.
 
-#How it works:
+# How it works:
 
 `$LD_PRELOAD` is used to override several Gdk and glib/gobject APIs to
 intercept related calls Gtk+ 3 uses to setup CSDs. For older versions
