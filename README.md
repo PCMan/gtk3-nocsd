@@ -93,7 +93,7 @@ of Gtk+ 3, while it is trying to initialize CSDs, it is led to believe
 that there is no compositor available, so CSDs are not added. For later
 Gtk+ 3 versions (3.16.1+), the `gtk_window_set_titlebar` method is
 reimplemented, as tricking Gtk+ 3 into thinking the compositor is
-disabled has side effects and is not sufficent anymore.
+disabled has side effects and is not sufficient anymore.
 
 Additionally, as gtk_window_set_titlebar is also called from Gtk+
 internally (and LD_PRELOAD cannot override function calls within a
