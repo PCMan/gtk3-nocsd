@@ -618,12 +618,6 @@ extern void gtk_window_set_titlebar (GtkWindow *window, GtkWidget *titlebar) {
             }
         }
 
-        /* Remove any potential old title bar. We can't call
-         * the static unset_titlebar() directly (not available),
-         * so we call the full function; that shouldn't have
-         * any side effects. */
-        orig_gtk_window_set_titlebar (window, NULL);
-
         /* The solid-csd class is not removed when the titlebar
          * is unset in Gtk (it's probably a bug), so unset it
          * here explicitly, in case it's set. */
