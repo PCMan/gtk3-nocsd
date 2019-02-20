@@ -275,6 +275,7 @@ RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_unrealize, void, (GtkWidget *
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_realize, void, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_settings, GtkSettings *, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_toplevel, GtkWidget *, (GtkWidget *widget), (widget))
+RUNTIME_IMPORT_FUNCTION(0, GDK_LIBRARY, gdk_screen_get_default, GdkScreen *, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GDK_LIBRARY, gdk_window_get_user_data, void, (GdkWindow *window, gpointer *data), (window, data))
 RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_screen_is_composited, gboolean, (GdkScreen *screen), (screen))
 RUNTIME_IMPORT_FUNCTION(1, GDK_LIBRARY, gdk_window_set_decorations, void, (GdkWindow *window, GdkWMDecoration decorations), (window, decorations))
@@ -339,6 +340,7 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define gtk_widget_set_parent                            rtlookup_gtk_widget_set_parent
 #define gtk_widget_unrealize                             rtlookup_gtk_widget_unrealize
 #define gtk_widget_realize                               rtlookup_gtk_widget_realize
+#define gdk_screen_get_default                           rtlookup_gdk_screen_get_default
 #define gdk_window_get_user_data                         rtlookup_gdk_window_get_user_data
 #define orig_gdk_screen_is_composited                    rtlookup_gdk_screen_is_composited
 #define orig_gdk_window_set_decorations                  rtlookup_gdk_window_set_decorations
@@ -581,8 +583,7 @@ static void add_custom_css (GtkWidget *widget)
     /* Use a higher priority than SETTINGS, but lower than APPLICATION.
      * add_provider will make sure a given provider is not added twice.
      */
-    GdkDisplay *display = gdk_display_get_default ();
-    GdkScreen *screen = gdk_display_get_default_screen (display);
+    GdkScreen *screen = gdk_screen_get_default ();
     gtk_style_context_add_provider_for_screen (screen, my_provider, GTK_STYLE_PROVIDER_PRIORITY_SETTINGS + 50);
 }
 
