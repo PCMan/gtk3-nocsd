@@ -1,7 +1,6 @@
 PKG_CONFIG ?= pkg-config
 CFLAGS ?= -O2 -g
 override CFLAGS += $(shell ${PKG_CONFIG} --cflags gtk+-3.0) $(shell ${PKG_CONFIG} --cflags gobject-introspection-1.0) -pthread -Wall -Wextra -Wno-unused-parameter
-LDLIBS = -ldl
 CFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(CFLAGS)) -fPIC
 LDFLAGS_LIB = $(filter-out -fPIE -fpie -pie,$(LDFLAGS)) -fPIC
 
@@ -19,7 +18,7 @@ clean:
 	[ ! -d testlibs ] || rm -r testlibs
 
 libgtk3-nocsd.so.0: gtk3-nocsd.o
-	$(CC) -shared $(CFLAGS_LIB) $(LDFLAGS_LIB) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
+	$(CC) -ldl -shared $(CFLAGS_LIB) $(LDFLAGS_LIB) -Wl,-soname,libgtk3-nocsd.so.0 -o $@ $^ $(LDLIBS)
 
 gtk3-nocsd.o: gtk3-nocsd.c
 	$(CC) $(CPPFLAGS) $(CFLAGS_LIB) -o $@ -c $<
@@ -66,7 +65,7 @@ testlibs/stamp: test-dummylib.c
 	touch testlibs/stamp
 
 test-static-tls: test-static-tls.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-static-tls test-static-tls.o $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o test-static-tls test-static-tls.o -ldl
 
 test-now: test-now.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o test-now test-now.o $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o test-now test-now.o -ldl
