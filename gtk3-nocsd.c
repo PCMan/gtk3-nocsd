@@ -263,7 +263,7 @@ RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_set_decoration_layout, vo
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_header_bar_get_decoration_layout, const gchar *, (GtkHeaderBar *bar), (bar))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_remove_class, void, (GtkStyleContext *context, const gchar *class_name), (context, class_name))
-RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_provider, void, (GtkStyleContext *context, GtkStyleProvider *provider, guint priority), (context, provider, priority))
+RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_context_add_provider_for_screen, void, (GdkScreen *screen, GtkStyleProvider *provider, guint priority), (screen, provider, priority))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_style_provider_get_type, GType, (), ())
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_destroy, void, (GtkWidget *widget), (widget))
 RUNTIME_IMPORT_FUNCTION(0, GTK_LIBRARY, gtk_widget_get_mapped, gboolean, (GtkWidget *widget), (widget))
@@ -329,7 +329,7 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define orig_gtk_header_bar_get_decoration_layout        rtlookup_gtk_header_bar_get_decoration_layout
 #define gtk_style_context_add_class                      rtlookup_gtk_style_context_add_class
 #define gtk_style_context_remove_class                   rtlookup_gtk_style_context_remove_class
-#define gtk_style_context_add_provider                   rtlookup_gtk_style_context_add_provider
+#define gtk_style_context_add_provider_for_screen        rtlookup_gtk_style_context_add_provider_for_screen
 #define gtk_style_provider_get_type                      rtlookup_gtk_style_provider_get_type
 #define gtk_widget_destroy                               rtlookup_gtk_widget_destroy
 #define gtk_widget_get_mapped                            rtlookup_gtk_widget_get_mapped
@@ -546,11 +546,11 @@ static GtkStyleProvider *get_custom_css_provider ()
       "  border-color: transparent;\n"
       "}\n"
       ".background:not(.tiled):not(.maximized) .titlebar:backdrop,\n"
-      ".background:not(.tiled):not(.maximized) .titlebar {\n"
+      ".background:not(.tiled):not(.maximized) .titlebar,"
+      ".background:not(.tiled):not(.maximized) .titlebar headerbar {\n"
       "  border-top-left-radius: 0;\n"
       "  border-top-right-radius: 0;\n"
-      "}\n"
-      "";
+      "}\n";
 
     if (G_UNLIKELY (provider == NULL)) {
         GtkCssProvider *new_provider;
@@ -574,16 +574,16 @@ static GtkStyleProvider *get_custom_css_provider ()
 
 static void add_custom_css (GtkWidget *widget)
 {
-    GtkStyleContext *context = gtk_widget_get_style_context (widget);
     GtkStyleProvider *my_provider = get_custom_css_provider ();
-
-    if (!context || !my_provider)
+    if (!my_provider)
         return;
 
     /* Use a higher priority than SETTINGS, but lower than APPLICATION.
      * add_provider will make sure a given provider is not added twice.
      */
-    gtk_style_context_add_provider (context, my_provider, GTK_STYLE_PROVIDER_PRIORITY_SETTINGS + 50);
+    GdkDisplay *display = gdk_display_get_default ();
+    GdkScreen *screen = gdk_display_get_default_screen (display);
+    gtk_style_context_add_provider_for_screen (screen, my_provider, GTK_STYLE_PROVIDER_PRIORITY_SETTINGS + 50);
 }
 
 // This API exists since gtk+ 3.10
