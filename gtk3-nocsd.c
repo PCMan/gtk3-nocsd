@@ -350,6 +350,9 @@ RUNTIME_IMPORT_FUNCTION(0, GIREPOSITORY_LIBRARY, g_function_info_prep_invoker, g
 #define g_object_class_find_property                     rtlookup_g_object_class_find_property
 #define g_object_get_valist                              rtlookup_g_object_get_valist
 #define g_object_get_property                            rtlookup_g_object_get_property
+#ifdef g_object_ref
+#  undef g_object_ref
+#endif
 #define g_object_ref                                     rtlookup_g_object_ref
 #define g_object_unref                                   rtlookup_g_object_unref
 #define g_value_init                                     rtlookup_g_value_init
@@ -1313,7 +1316,7 @@ out:
 
 static gtk_header_bar_private_info_t gtk_header_bar_private_info ()
 {
-    static volatile gtk_header_bar_private_info_t info = { (gsize) -1, NULL };
+    static volatile gtk_header_bar_private_info_t info = { (gsize) -1, NULL, NULL };
     if (G_UNLIKELY (info.decoration_layout_offset == (gsize) -1)) {
         /* Was only introduced in Gtk+3 >= 3.12. Unlikely that someone is
          * still using such an old version, but be safe nevertheless. */
