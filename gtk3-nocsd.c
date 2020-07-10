@@ -39,6 +39,11 @@
 
 #include <gobject/gvaluecollector.h>
 
+#ifdef __FreeBSD__
+#include <sys/elf_generic.h>
+#define ElfW(t) Elf##_##t
+#endif
+
 typedef void (*gtk_window_buildable_add_child_t) (GtkBuildable *buildable, GtkBuilder *builder, GObject *child, const gchar *type);
 typedef GObject* (*gtk_dialog_constructor_t) (GType type, guint n_construct_properties, GObjectConstructParam *construct_params);
 typedef char *(*gtk_check_version_t) (guint required_major, guint required_minor, guint required_micro);
