@@ -16,10 +16,13 @@
 # program to call as its arguments.
 #
 
+OS=$(uname | tr "[:upper:]" "[:lower:]")
+RLINK_ARGS=$([ "$OS" = "freebsd" ] && echo "-f" || echo "-fe")
+
 GTK3_NOCSD_NAME=libgtk3-nocsd.so.0
 
 # Determine if this script are installed in the system path
-GTK3_NOCSD_BINARY="$(readlink -fe "$(which "$0")")"
+GTK3_NOCSD_BINARY="$(readlink ${RLINK_ARGS} "$(which "$0")")"
 case "${GTK3_NOCSD_BINARY%/*}" in
     /sbin|/bin|/usr/bin|/usr/sbin|/usr/local/bin|/usr/local/sbin)  IN_SYSTEM_PATH=1  ;;
     *)                                                             IN_SYSTEM_PATH=0  ;;
@@ -73,7 +76,7 @@ fi
 # Find the real program (the first one that's not symlinked to get3-nocsd)
 APPNAME="$(basename "$0")"
 for APPPATH in $(which -a "$APPNAME") /bin/false; do
-    APPPATH_LINK="$(readlink -fe "$APPPATH")"
+    APPPATH_LINK="$(readlink ${RLINK_ARGS} "$APPPATH")"
     [ x"${APPPATH_LINK##*/}"x = x"gtk3-nocsd"x ] || break
 done
 
