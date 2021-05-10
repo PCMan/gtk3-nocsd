@@ -1197,7 +1197,7 @@ gint g_type_add_instance_private (GType class_type, gsize private_size)
     } else if (G_UNLIKELY (class_type == gtk_header_bar_type && gtk_header_bar_private_size == 0)) {
         gtk_header_bar_private_size = private_size;
         gtk_header_bar_private_offset = orig_g_type_add_instance_private (class_type, private_size);
-        return gtk_window_private_offset;
+        return gtk_header_bar_private_offset;
     }
     return orig_g_type_add_instance_private (class_type, private_size);
 }
